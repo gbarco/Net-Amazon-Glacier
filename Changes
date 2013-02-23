@@ -1,0 +1,35 @@
+Revision history for Net-Amazon-Glacier
+
+0.12	2012-11-07
+		Fixed TreeHash calculation for files larger than 1 MiB; thanks Ted Reed for the patch.
+		Documentation fix for initiate_inventory_retrieval().
+
+0.11	2012-10-03
+		Documentation fix: changed "account ID" to "access key ID".
+
+0.10	2012-09-18
+		Added job operations support through patch by Ted Reed at IMVU.
+
+0.09	2012-09-04
+		Implemented upload_archive().
+		Added argument checks for most methods.
+
+0.08	2012-09-04
+		Default to HTTPS
+
+0.07	2012-09-04
+		Fixed signature package name typo.
+
+0.06	2012-08-28
+		Fixed documentation syntax error.
+		Mentioned MT::AWS::Glacier in documentation.
+
+0.05	2012-08-28
+		Fixed dependency typo.
+
+0.04	2012-08-27
+		Fixed name of sibling module Net::Amazon::Signature::V4 due to a namespace clash.
+
+0.01	2012-08-26
+		First version, released on an unsuspecting world.
+
