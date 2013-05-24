@@ -43,19 +43,19 @@ Perhaps a little code snippet.
 	);
 	
 	my $vault = 'a_vault';
-	
-	my $vaults = $glacier->list_vaults();
+	my @vaults = $glacier->list_vaults();
 	
 	if ( $glacier->create_vault( $vault ) ) {
 
-		if ( my $archive_id = $glacier->upload_archive( $vault, './archive.7z' ) ) {
+		if ( my $archive_id = $glacier->upload_archive( './archive.7z' ) ) {
 
-			my $job_id = $glacier->initiate_job( $vault, $archive_id );
+			my $job_id = $glacier->inititate_job( $vault, $archive_id );
 			
-			#jobs generally take about 4 hours to complete
+			# Jobs generally take about 4 hours to complete
 			my $job_description = $glacier->describe_job( $vault, $job_id );
 			
-			#better ways to wait for completion http://docs.aws.amazon.com/amazonglacier/latest/dev/api-initiate-job-post.html
+			# For a better way to wait for completion, see
+			# http://docs.aws.amazon.com/amazonglacier/latest/dev/api-initiate-job-post.html
 			while ( $job_description->{'StatusCode'} ne 'Succeeded' ) {
 				sleep 15 * 60 * 60;
 				$job_description = $glacier->describe_job( $vault, $job_id );
@@ -63,12 +63,13 @@ Perhaps a little code snippet.
 			
 			my $archive_bytes = $glacier->get_job_output( $vault, $job_id );
 			
-			#jobs live as completed jobs for "a period" http://docs.aws.amazon.com/amazonglacier/latest/dev/api-jobs-get.html
-			my $jobs = @{$glacier->list_jobs( $vault )};
+			# Jobs live as completed jobs for "a period", according to
+			# http://docs.aws.amazon.com/amazonglacier/latest/dev/api-jobs-get.html
+			my @jobs = $glacier->list_jobs( $vault );
 			
-			#As of 2013-02-09 jobs are blindly created even if a job for the same archive_id and Range exists
-			#keep $archive_ids, reuse the expensive job resource, remember 4 hours...
-			foreach my $job ( $@jobs ) {
+			# As of 2013-02-09 jobs are blindly created even if a job for the same archive_id and Range exists.
+			# Keep $archive_ids, reuse the expensive job resource, and remember 4 hours.
+			foreach my $job ( @jobs ) {
 				next unless $job->{ArchiveId} eq $archive_id;
 				my $archive_bytes = $glacier->get_job_output( $vault, $job_id );
 			}
@@ -154,9 +155,7 @@ sub list_vaults {
 	my $marker;
 	do {
 		#1000 is the default limit, send a marker if needed
-		my $uri = "/-/vaults?limit=1000";
-		$uri .= '&marker='.$marker if ( $marker );
-		my $res = $self->_send_receive( GET => $uri );
+		my $res = $self->_send_receive( GET => "/-/vaults?limit=1000" . $marker?'&'.$marker:'');
 		my $decoded = $self->_decode_and_handle_response( $res );
 
 		push @vaults, @{$decoded->{VaultList}};
@@ -380,8 +379,7 @@ L<Initiate a Job (POST jobs)|http://docs.aws.amazon.com/amazonglacier/latest/dev
 =cut
 
 sub initiate_job {
-	my ( @params ) = @_;
-	initiate_archive_retrieval( @params);
+	initiate_inventory_retrieval( @_ );
 }
 
 =head2 describe_job( $vault_name, $job_id )
@@ -437,9 +435,7 @@ sub list_jobs {
 	my $marker;
 	do {
 		#1000 is the default limit, send a marker if needed
-		my $uri = "/-/vaults/$vault_name/jobs?limit=1000";
-		$uri .= '&marker='.$marker if ( $marker );
-		my $res = $self->_send_receive( GET => $uri);
+		my $res = $self->_send_receive( GET => "/-/vaults/$vault_name/jobs?limit=1000" . $marker?'&'.$marker:'' );
 		my $decoded = $self->_decode_and_handle_response( $res );
 		
 		push @completed_jobs, @{$decoded->{JobList}};
@@ -506,7 +502,7 @@ See also Victor Efimov's MT::AWS::Glacier, an application for AWS Glacier synchr
 
 =head1 AUTHORS
 
-Written and maintained by Tim Nordenfur, C<< <tim at gurka.se> >>. Support for job operations was contributed by Ted Reed at IMVU.
+Maintained and originally written by Tim Nordenfur, C<< <tim at gurka.se> >>. Support for job operations was contributed by Ted Reed at IMVU. Support for many operations was contributed by Gonzalo Barco.
 
 =head1 BUGS
 

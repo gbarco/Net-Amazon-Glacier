@@ -1,5 +1,9 @@
 Revision history for Net-Amazon-Glacier
 
+0.13	2013-02-26
+		Support for vault notifications, vault deletion and job listing through patch by Gonzalo Barco.
+		Better documentation thanks to Gonzalo Barco.
+
 0.12	2012-11-07
 		Fixed TreeHash calculation for files larger than 1 MiB; thanks Ted Reed for the patch.
 		Documentation fix for initiate_inventory_retrieval().
