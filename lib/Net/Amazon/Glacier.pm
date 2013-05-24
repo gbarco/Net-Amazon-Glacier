@@ -26,7 +26,7 @@ Version 0.13
 
 =cut
 
-our $VERSION = '0.13';
+our $VERSION = '0.14';
 
 =head1 SYNOPSIS
 
@@ -43,6 +43,7 @@ Perhaps a little code snippet.
 	);
 	
 	my $vault = 'a_vault';
+
 	my @vaults = $glacier->list_vaults();
 	
 	if ( $glacier->create_vault( $vault ) ) {
@@ -290,6 +291,196 @@ sub delete_archive {
 	croak "no archive ID given" unless $archive_id;
 	my $res = $self->_send_receive( DELETE => "/-/vaults/$vault_name/archives/$archive_id" );
 	return $res->is_success;
+}
+
+=head1 MULTIPART UPLOAD OPERATIONS
+
+=head2 SYNOPSIS
+
+Multipart code snippet
+
+	use Net::Amazon::Glacier;
+
+	my $glacier = Net::Amazon::Glacier->new(
+		'eu-west-1',
+		'AKIMYACCOUNTID',
+		'MYSECRET',
+	);
+
+	my $multipart_upload_id = $glacier->multipart_upload_inititate( $vault, $description, $part_size )
+	while ( custom_have_chunks_sub() ) {
+		my $chunk = custom_get_next_chunk_sub();
+		$glacier->multipart_upload_part ( $multipart_upload_id)
+	}
+
+	# Get parts for this upload and maybe check we got all parts for this upload
+	$glacier->multipart_upload_part_list( $multipart_upload_id );
+
+	# Close this upload (croaks if parts are missing)
+	$glacier->multipart_upload_complete( $multipart_upload_id );
+
+	# Check out how many panding multipart upload we have around
+	$glacier->multipart_upload_list();
+
+=head2 multipart_upload_managed ( $vault_name, $file_paths, [ $concurrence ], [ $description ] )
+
+Upload single or multiple files in multiple parts as a single archive.
+$file_paths is either a string file path or a reference to an array of paths.
+Automatically reverts to single part upload if files are smaller than minimum
+part size.
+Guesses a viable part size to upload files up to 39Tb API limit internally using
+multipart_upload_guess_part_size.
+Supports files of different sizes.
+Beware that memory must be allocated for many times the part size and increases
+as archive size increases. Some effort is made to spool data to temporary files.
+If $concurrence > 1 multiple threads maybe fired to upload parts in parallel up
+to the number especified in concurrence.
+Runs until all parts have been uploaded. Could take really long.
+Calls the apropiate multipart API to initiate, upload parts and complete the
+archive upload process. Croaks on many possible errors.
+Returns an archive id that can be used to request a job to retrieve the archive
+at a later time on success.
+
+=cut
+
+sub multipart_upload_managed {
+	my ( $vault_name, $file_paths, $concurrence, $description ) = @_;
+	$concurrence = 1 if ( $concurrence < 1 );
+
+	my $archive_id;
+
+	return $archive_id;
+}
+
+=head2 multipart_upload_guess_part_size ( $file_paths )
+
+Guesses a part size that would allow to upload all files in $file_paths.
+$file_paths is either a string file path or a reference to an array of paths.
+Returns a one of the smallest possible part size to upload the group of files on
+success, 0 when files cannot be uploaded in parts (i.e. >39Tb)
+
+=cut
+
+sub multipart_upload_guess_part_size {
+	my ( $file_paths ) = @_;
+	my $part_size;
+
+	return $part_size;
+}
+
+=head2 multipart_upload_initiate( $vault_name, [ $description ], $part_size )
+
+Initiates a multi part upload.
+$part_size should be carefully calculated to avoid dead ends as documented in
+the API. When in doubt use multipart_upload_auto or
+multipart_upload_guess_part_size.
+Returns an multipart upload id that should be used to adding parts to the online
+archive that is being constructed.
+Multipart upload ids are valid until multipart_upload_abort is called or 24
+hours after last archive related activity is registered. After that period
+id validity should not be expected.
+L<Initiate Multipart Upload (POST multipart-uploads)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-multipart-initiate-upload.html>.
+
+=cut
+
+sub multipart_upload_initiate {
+	my ( $vault_name, $description, $part_size ) = @_;
+
+	my $multipart_upload_id;
+
+	return $multipart_upload_id;
+}
+
+=head2 multipart_upload_part( $vault_name, $multipart_upload_id, $content_range, $part )
+
+Uploads a certain range of a multipart upload.
+$content_range should be the floor of the range to be uploaded and must be part
+size aligned. i.e. valid ranges for a part size of 1Mb are 0, 1048576,
+2097152 .. 10484711424 or 1Mb*0, 1Mb*1, 1Mb*2..1Mb*9999 (remember the 10000
+parts limit). Range end is calculated from part size.
+Dead ends could occur like trying to upload a >10000Mb archive with partsize
+1Mb. When in doubt use multipart_upload_auto.
+Absolute maximum online archive size is 4GB*10000 or sligthly over 39Tb. L<Uploading Large Archives in Parts (Multipart Upload) Quick Facts|docs.aws.amazon.com/amazonglacier/latest/dev/uploading-archive-mpu.html#qfacts>
+$part can must evaluate to a string or be a filehandle.
+Returns uploaded part size (which should be used to keep track of uploaded
+ranges). When in doubt use multipart_upload_auto.
+L<Upload Part (PUT uploadID)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-upload-part.html>.
+
+=cut
+
+sub multipart_upload_part {
+	my ( $vault_name, $multipart_upload_id, $content_range, $part ) = @_;
+
+	my $upload_part_size;
+
+	return $upload_part_size;
+}
+
+=head2 multipart_upload_complete( $vault_name, $multipart_upload_id, $archive_size )
+
+Signals completion of multipart upload.
+Archive size if provided at completion to allow for archive streaming a.k.a.
+upload archives of unknown size. Behold of dead ends when choosing part size.
+Returns an archive id that can be used to request a job to retrieve the archive
+at a later time on success.
+L<Complete Multipart Upload (POST uploadID)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-multipart-complete-upload.html>.
+
+=cut
+
+sub multipart_upload_complete {
+	my ( $vault_name, $multipart_upload_id, $archive_size ) = @_;
+
+	my $archive_id;
+
+	return $archive_id;
+}
+
+=head2 multipart_upload_abort( $vault_name, $multipart_upload_id )
+
+Aborts multipart upload releasing the id and related online resources of
+partially uploaded archive.
+L<Abort Multipart Upload (DELETE uploadID)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-multipart-abort-upload.html>.
+
+=cut
+
+sub multipart_upload_abort {
+	my ( $vault_name, $multipart_upload_id ) = @_;
+}
+
+=head2 multipart_upload_part_list( $vault_name, $multipart_upload_id )
+
+Returns an array with information on all uploaded parts of the, probably
+partially uploaded, online archive.
+L<List Parts (GET uploadID)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-multipart-list-parts.html>
+
+A call to multipart_upload_part_list can result in many calls to the the Amazon API at a rate of 1 per 1,000 recently completed job in existence.
+Calls to List Parts in the API are L<free|http://aws.amazon.com/glacier/pricing/#storagePricing>.
+
+=cut
+
+sub multipart_upload_part_list {
+	my ( $vault_name, $multipart_upload_id ) = @_;
+	my @upload_part_list;
+
+	return \@upload_part_list;
+}
+
+=head2 multipart_upload_list( $vault_name )
+
+Returns an array with information on all non completed multipart uploads.
+Useful to recover multipart upload ids.
+L<List Multipart Uploads (GET multipart-uploads)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-multipart-list-uploads.html>
+
+A call to multipart_upload_list can result in many calls to the the Amazon API at a rate of 1 per 1,000 recently completed job in existence.
+Calls to List Multipart Uploads in the API are L<free|http://aws.amazon.com/glacier/pricing/#storagePricing>.
+
+=cut
+
+sub multipart_upload_list {
+	my ( $vault_name ) = @_;
+	my @upload_list;
+
+	return \@upload_list;
 }
 
 =head1 JOB OPERATIONS
