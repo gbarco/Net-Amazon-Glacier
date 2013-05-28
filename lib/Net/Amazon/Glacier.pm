@@ -153,10 +153,11 @@ Calls to List Vaults in the API are L<free|http://aws.amazon.com/glacier/pricing
 sub list_vaults {
 	my ( $self ) = @_;
 	my @vaults;
+	
 	my $marker;
 	do {
 		#1000 is the default limit, send a marker if needed
-		my $res = $self->_send_receive( GET => "/-/vaults?limit=1000" . $marker?'&'.$marker:'');
+		my $res = $self->_send_receive( GET => "/-/vaults?limit=1000" . ($marker?'&'.$marker:'') );
 		my $decoded = $self->_decode_and_handle_response( $res );
 
 		push @vaults, @{$decoded->{VaultList}};
@@ -495,7 +496,20 @@ Calls to List Parts in the API are L<free|http://aws.amazon.com/glacier/pricing/
 
 sub multipart_upload_part_list {
 	my ( $self, $vault_name, $multipart_upload_id ) = @_;
+	croak "no vault name given" unless $vault_name;
+	croak "no multipart_upload_id given" unless $multipart_upload_id;
+	
 	my @upload_part_list;
+	
+	my $marker;
+	do {
+		#1000 is the default limit, send a marker if needed
+		my $res = $self->_send_receive( GET => "/-/vaults/$vault_name/multipart-uploads/$multipart_upload_id?limit=1000" . ($marker?'&'.$marker:'') );
+		my $decoded = $self->_decode_and_handle_response( $res );
+
+		push @upload_part_list, @{$decoded->{Parts}};
+		$marker = $decoded->{Marker};
+	} while ( $marker );
 
 	return \@upload_part_list;
 }
@@ -520,7 +534,7 @@ sub multipart_upload_list {
 	my $marker;
 	do {
 		#1000 is the default limit, send a marker if needed
-		my $res = $self->_send_receive( GET => "/-/vaults/$vault_name/multipart-uploads?limit=1000" . $marker?'&'.$marker:'');
+		my $res = $self->_send_receive( GET => "/-/vaults/$vault_name/multipart-uploads?limit=1000" . ($marker?'&'.$marker:'') );
 		my $decoded = $self->_decode_and_handle_response( $res );
 
 		push @upload_list, @{$decoded->{UploadsList}};
@@ -669,16 +683,20 @@ Calls to List Jobs in the API are L<free|http://aws.amazon.com/glacier/pricing/#
 
 sub list_jobs {
 	my ( $self, $vault_name ) = @_;
+	croak "no vault name given" unless $vault_name;
+	
 	my @completed_jobs;
+	
 	my $marker;
 	do {
 		#1000 is the default limit, send a marker if needed
-		my $res = $self->_send_receive( GET => "/-/vaults/$vault_name/jobs?limit=1000" . $marker?'&'.$marker:'' );
+		my $res = $self->_send_receive( GET => "/-/vaults/$vault_name/jobs?limit=1000" . ($marker?'&'.$marker:'') );
 		my $decoded = $self->_decode_and_handle_response( $res );
 		
 		push @completed_jobs, @{$decoded->{JobList}};
 		$marker = $decoded->{Marker};
 	} while ( $marker );
+	
 	return ( \@completed_jobs );
 }
 
@@ -686,6 +704,7 @@ sub list_jobs {
 
 sub _decode_and_handle_response {
 	my ( $self, $res ) = @_;
+	
 	if ( $res->is_success ) {
 		return decode_json( $res->decoded_content );
 	} else {
