@@ -463,7 +463,23 @@ L<Abort Multipart Upload (DELETE uploadID)|http://docs.aws.amazon.com/amazonglac
 =cut
 
 sub multipart_upload_abort {
-	my ( $vault_name, $multipart_upload_id ) = @_;
+	my ( $self, $vault_name, $multipart_upload_id ) = @_;
+	croak "no vault name given" unless $vault_name;
+	croak "no multipart_upload_id given" unless $multipart_upload_id;
+
+	my $res = $self->_send_receive(
+		DELETE => "/-/vaults/$vault_name/multipart-uploads/$multipart_upload_id",
+	);
+	return 0 unless $res->is_success;
+
+	# double check the webservice speaks the same language
+	unless ( $res->code == 204 ) {
+		carp 'request succeeded, but response code is not 204 No Content';
+		return 0;
+	}
+
+	# return success
+	return 1;
 }
 
 =head2 multipart_upload_part_list( $vault_name, $multipart_upload_id )
@@ -497,7 +513,19 @@ Calls to List Multipart Uploads in the API are L<free|http://aws.amazon.com/glac
 
 sub multipart_upload_list {
 	my ( $self, $vault_name ) = @_;
+	croak "no vault name given" unless $vault_name;
+	
 	my @upload_list;
+	
+	my $marker;
+	do {
+		#1000 is the default limit, send a marker if needed
+		my $res = $self->_send_receive( GET => "/-/vaults/$vault_name/multipart-uploads?limit=1000" . $marker?'&'.$marker:'');
+		my $decoded = $self->_decode_and_handle_response( $res );
+
+		push @upload_list, @{$decoded->{UploadsList}};
+		$marker = $decoded->{Marker};
+	} while ( $marker );
 
 	return \@upload_list;
 }
