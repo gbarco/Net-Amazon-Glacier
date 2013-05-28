@@ -22,7 +22,7 @@ Net::Amazon::Glacier - An implementation of the Amazon Glacier RESTful API.
 
 =head1 VERSION
 
-Version 0.13
+Version 0.14
 
 =cut
 
@@ -306,7 +306,7 @@ Multipart code snippet
 		'AKIMYACCOUNTID',
 		'MYSECRET',
 	);
-
+	
 	my $multipart_upload_id = $glacier->multipart_upload_inititate( $vault, $description, $part_size )
 	while ( custom_have_chunks_sub() ) {
 		my $chunk = custom_get_next_chunk_sub();
@@ -368,7 +368,7 @@ sub multipart_upload_guess_part_size {
 	return $part_size;
 }
 
-=head2 multipart_upload_initiate( $vault_name, [ $description ], $part_size )
+=head2 multipart_upload_initiate( $vault_name, $part_size, [ $description ] )
 
 Initiates a multi part upload.
 $part_size should be carefully calculated to avoid dead ends as documented in
@@ -384,9 +384,28 @@ L<Initiate Multipart Upload (POST multipart-uploads)|http://docs.aws.amazon.com/
 =cut
 
 sub multipart_upload_initiate {
-	my ( $vault_name, $description, $part_size ) = @_;
+	my ( $self, $vault_name, $part_size, $description) = @_;
+	croak "no vault name given" unless $vault_name;
+	croak "no part size given" unless $part_size;
 
 	my $multipart_upload_id;
+
+	my $res = $self->_send_receive(
+		POST => "/-/vaults/$vault_name/multipart-uploads",
+		[
+			'x-amz-archive-description' => $description,
+			'x-amz-part-size' => $part_size,
+		],
+	);
+	return 0 unless $res->is_success;
+
+	$multipart_upload_id = $res->header('x-amz-multipart-upload-id');
+
+	# double check the webservice speaks the same language
+	unless ( $multipart_upload_id ) {
+		carp 'request succeeded, but reported no multipart upload id was returned';
+		return 0;
+	}
 
 	return $multipart_upload_id;
 }
@@ -428,7 +447,7 @@ L<Complete Multipart Upload (POST uploadID)|http://docs.aws.amazon.com/amazongla
 =cut
 
 sub multipart_upload_complete {
-	my ( $vault_name, $multipart_upload_id, $archive_size ) = @_;
+	my ( $self, $vault_name, $multipart_upload_id, $archive_size ) = @_;
 
 	my $archive_id;
 
@@ -459,7 +478,7 @@ Calls to List Parts in the API are L<free|http://aws.amazon.com/glacier/pricing/
 =cut
 
 sub multipart_upload_part_list {
-	my ( $vault_name, $multipart_upload_id ) = @_;
+	my ( $self, $vault_name, $multipart_upload_id ) = @_;
 	my @upload_part_list;
 
 	return \@upload_part_list;
@@ -477,7 +496,7 @@ Calls to List Multipart Uploads in the API are L<free|http://aws.amazon.com/glac
 =cut
 
 sub multipart_upload_list {
-	my ( $vault_name ) = @_;
+	my ( $self, $vault_name ) = @_;
 	my @upload_list;
 
 	return \@upload_list;
