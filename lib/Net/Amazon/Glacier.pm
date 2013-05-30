@@ -411,7 +411,7 @@ sub multipart_upload_initiate {
 	return $multipart_upload_id;
 }
 
-=head2 multipart_upload_part( $vault_name, $multipart_upload_id, $content_range, $part )
+=head2 multipart_upload_part( $vault_name, $multipart_upload_id, $content_range, $tree_hash, $part )
 
 Uploads a certain range of a multipart upload.
 $content_range should be the floor of the range to be uploaded and must be part
@@ -421,7 +421,9 @@ parts limit). Range end is calculated from part size.
 Dead ends could occur like trying to upload a >10000Mb archive with partsize
 1Mb. When in doubt use multipart_upload_auto.
 Absolute maximum online archive size is 4GB*10000 or sligthly over 39Tb. L<Uploading Large Archives in Parts (Multipart Upload) Quick Facts|docs.aws.amazon.com/amazonglacier/latest/dev/uploading-archive-mpu.html#qfacts>
-$part can must evaluate to a string or be a filehandle.
+$tree_hash is a Net::Amazon::TreeHash to store cumulative file hash needed to complete upload
+$part can must evaluate to a string or be a filehandle and must be exactly
+the part_size supplied to multipart_upload_initiate or part upload will fail
 Returns uploaded part size (which should be used to keep track of uploaded
 ranges). When in doubt use multipart_upload_auto.
 L<Upload Part (PUT uploadID)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-upload-part.html>.
@@ -429,14 +431,59 @@ L<Upload Part (PUT uploadID)|http://docs.aws.amazon.com/amazonglacier/latest/dev
 =cut
 
 sub multipart_upload_part {
-	my ( $vault_name, $multipart_upload_id, $content_range, $part ) = @_;
+	my ( $self, $vault_name, $multipart_upload_id, $content_range, $tree_hash, $part ) = @_;
+	croak "no vault name given" unless $vault_name;
+	croak "no multipart upload id given" unless $multipart_upload_id;
+	croak "no tree hash object given" unless ref $tree_hash eq 'Net::Amazon::TreeHash';
+	
+	# try to slurp the fileidentify $part as filehandle or string and get content
+	my $content = '';
+	
+	if ( ref $part eq 'GLOB' or ref \$part eq 'GLOB' ) { #works with IO::Handle/File
+		$content = read_file( $part );
+		croak "no data in filehandle" unless length $content;
+	} else {
+		#interpret as scalar
+		$content = scalar $part;
+		croak "no data supplied" unless length $content;
+	}
 
-	my $upload_part_size;
-
-	return $upload_part_size;
+	my $upload_part_size = length $content;
+	
+	# compute part hash
+	my $th = Net::Amazon::TreeHash->new();
+	
+	$th->eat_data( \$content );
+	
+	my $res = $self->_send_receive(
+		PUT => "/-/vaults/$vault_name/multipart-uploads/$multipart_upload_id",
+		[
+			'Content-Range:bytes ' . $content_range . '-' . ( $content_range + $upload_part_size ). '/*',
+			'Content-Length:' . $upload_part_size,
+			'Content-Type: application/octet-stream',
+			'x-amz-sha256-tree-hash' => $th->get_final_hash(),
+			#'x-amz-content-sha256' => sha256_hex( $content ),
+			# documentation error only tree-hash needed
+		],
+		$content
+	);
+	
+	return 0 unless $res->is_success;
+	
+	# check glacier tree-hash = local tree-hash
+	if ( $th->get_final_hash() eq $res->header('x-amz-sha256-tree-hash') ) {
+		# add hash to global tree hash only on success
+		$tree_hash->eat_data( \$content );
+		
+		# return range after upload
+		return $content_range + $upload_part_size;
+	} else {
+		carp 'request succeeded, but reported and computed tree-hash for part do not match';
+		return 0;
+	}
 }
 
-=head2 multipart_upload_complete( $vault_name, $multipart_upload_id, $archive_size )
+=head2 multipart_upload_complete( $vault_name, $multipart_upload_id, $tree_hash, $archive_size )
 
 Signals completion of multipart upload.
 Archive size if provided at completion to allow for archive streaming a.k.a.
@@ -448,11 +495,28 @@ L<Complete Multipart Upload (POST uploadID)|http://docs.aws.amazon.com/amazongla
 =cut
 
 sub multipart_upload_complete {
-	my ( $self, $vault_name, $multipart_upload_id, $archive_size ) = @_;
+	my ( $self, $vault_name, $multipart_upload_id, $tree_hash, $archive_size ) = @_;
+	croak "no vault name given" unless $vault_name;
+	croak "no multipart upload id given" unless $multipart_upload_id;
+	croak "no tree hash object given" unless ref $tree_hash eq 'Net::Amazon::TreeHash';
 
-	my $archive_id;
-
-	return $archive_id;
+	my $res = $self->_send_receive(
+		POST => "/-/vaults/$vault_name/multipart-uploads/$multipart_upload_id",
+		[
+			'x-amz-sha256-tree-hash' => $tree_hash->get_final_hash(),
+			'x-amz-archive-size' => $archive_size,
+		],
+	);
+	
+	return 0 unless $res->is_success;
+	
+	if ( $res->header('location') =~ m{^/([^/]+)/vaults/([^/]+)/archives/(.*)$} ) {
+		my ( $rec_uid, $rec_vault_name, $rec_archive_id ) = ( $1, $2, $3 );
+		return $rec_archive_id;
+	} else {
+		carp 'request succeeded, but reported archive location does not match regex: ' . $res->header('location');
+		return 0;
+	}
 }
 
 =head2 multipart_upload_abort( $vault_name, $multipart_upload_id )
