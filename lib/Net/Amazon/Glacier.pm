@@ -41,33 +41,33 @@ Perhaps a little code snippet.
 		'AKIMYACCOUNTID',
 		'MYSECRET',
 	);
-	
+
 	my $vault = 'a_vault';
 
 	my @vaults = $glacier->list_vaults();
-	
+
 	if ( $glacier->create_vault( $vault ) ) {
 
 		if ( my $archive_id = $glacier->upload_archive( './archive.7z' ) ) {
 
 			my $job_id = $glacier->inititate_job( $vault, $archive_id );
-			
+
 			# Jobs generally take about 4 hours to complete
 			my $job_description = $glacier->describe_job( $vault, $job_id );
-			
+
 			# For a better way to wait for completion, see
 			# http://docs.aws.amazon.com/amazonglacier/latest/dev/api-initiate-job-post.html
 			while ( $job_description->{'StatusCode'} ne 'Succeeded' ) {
 				sleep 15 * 60 * 60;
 				$job_description = $glacier->describe_job( $vault, $job_id );
 			}
-			
+
 			my $archive_bytes = $glacier->get_job_output( $vault, $job_id );
-			
+
 			# Jobs live as completed jobs for "a period", according to
 			# http://docs.aws.amazon.com/amazonglacier/latest/dev/api-jobs-get.html
 			my @jobs = $glacier->list_jobs( $vault );
-			
+
 			# As of 2013-02-09 jobs are blindly created even if a job for the same archive_id and Range exists.
 			# Keep $archive_ids, reuse the expensive job resource, and remember 4 hours.
 			foreach my $job ( @jobs ) {
@@ -76,7 +76,7 @@ Perhaps a little code snippet.
 			}
 
 		}
-		
+
 	}
 
 The functions are intended to closely reflect Amazon's Glacier API. Please see Amazon's API reference for documentation of the functions: L<http://docs.amazonwebservices.com/amazonglacier/latest/dev/amazon-glacier-api.html>.
@@ -153,7 +153,7 @@ Calls to List Vaults in the API are L<free|http://aws.amazon.com/glacier/pricing
 sub list_vaults {
 	my ( $self ) = @_;
 	my @vaults;
-	
+
 	my $marker;
 	do {
 		#1000 is the default limit, send a marker if needed
@@ -182,15 +182,15 @@ sub set_vault_notifications {
 	croak "no vault name given" unless $vault_name;
 	croak "no sns topic given" unless $sns_topic;
 	croak "events should be an array ref" unless ref $events eq 'ARRAY';
-	
+
 	my $content_raw;
-	
+
 	$content_raw->{SNSTopic} = $sns_topic
 		if defined($sns_topic);
-	
+
 	$content_raw->{Events} = $events
 		if defined($events);
-	
+
 	my $res = $self->_send_receive(
 		PUT => "/-/vaults/$vault_name/notification-configuration",
 		[
@@ -211,7 +211,7 @@ L<Get Vault Notifications (GET notification-configuration)|http://docs.aws.amazo
 sub get_vault_notifications {
 	my ( $self, $vault_name, $sns_topic, $events ) = @_;
 	croak "no vault name given" unless $vault_name;
-	
+
 	my $res = $self->_send_receive(
 		PUT => "/-/vaults/$vault_name/notification-configuration",
 	);
@@ -230,7 +230,7 @@ L<Delete Vault Notifications (DELETE notification-configuration)|http://docs.aws
 sub delete_vault_notifications {
 	my ( $self, $vault_name, $sns_topic, $events ) = @_;
 	croak "no vault name given" unless $vault_name;
-	
+
 	my $res = $self->_send_receive(
 		DELETE => "/-/vaults/$vault_name/notification-configuration",
 	);
@@ -307,7 +307,7 @@ Multipart code snippet
 		'AKIMYACCOUNTID',
 		'MYSECRET',
 	);
-	
+
 	my $multipart_upload_id = $glacier->multipart_upload_inititate( $vault, $description, $part_size )
 	while ( custom_have_chunks_sub() ) {
 		my $chunk = custom_get_next_chunk_sub();
@@ -431,17 +431,14 @@ L<Upload Part (PUT uploadID)|http://docs.aws.amazon.com/amazonglacier/latest/dev
 =cut
 
 sub multipart_upload_part {
-	my ( $self, $vault_name, $multipart_upload_id, $content_range, $tree_hash, $part ) = @_;
+	my ( $self, $vault_name, $multipart_upload_id, $part_size, $part_index, $tree_hash, $part ) = @_;
 	croak "no vault name given" unless $vault_name;
 	croak "no multipart upload id given" unless $multipart_upload_id;
 	croak "no tree hash object given" unless ref $tree_hash eq 'Net::Amazon::TreeHash';
-	
-	# correct possible undefined range
-	$content_range = 0 unless defined $content_range;
-	
+
 	# try to slurp the fileidentify $part as filehandle or string and get content
 	my $content = '';
-	
+
 	if ( ref $part eq 'GLOB' or ref \$part eq 'GLOB' ) { #works with IO::Handle/File
 		$content = read_file( $part );
 		$content = \$content;
@@ -453,16 +450,18 @@ sub multipart_upload_part {
 	}
 
 	my $upload_part_size = length $$content;
-	
+
 	# compute part hash
 	my $th = Net::Amazon::TreeHash->new();
-	
+
 	$th->eat_data( $content );
-	
+
+	# range end must not be ( $part_size * ( $part_index + 1 ) - 1 ) or last part
+	# will fail.
 	my $res = $self->_send_receive(
 		PUT => "/-/vaults/$vault_name/multipart-uploads/$multipart_upload_id",
 		[
-			'Content-Range' => 'bytes ' . $content_range . '-' . ( $content_range + $upload_part_size - 1) . '/*',
+			'Content-Range' => 'bytes ' . ( $part_size * $part_index ) . '-' .  ( ( $part_size * $part_index ) + $upload_part_size - 1 ) . '/*',
 			'Content-Length' => $upload_part_size,
 			'Content-Type' => 'application/octet-stream',
 			'x-amz-sha256-tree-hash' => $th->get_final_hash(),
@@ -471,16 +470,16 @@ sub multipart_upload_part {
 		],
 		$$content
 	);
-	
+
 	return 0 unless $res->is_success;
-	
+
 	# check glacier tree-hash = local tree-hash
 	if ( $th->get_final_hash() eq $res->header('x-amz-sha256-tree-hash') ) {
 		# add hash to global tree hash only on success
 		$tree_hash->eat_data( $content );
-		
-		# return range after upload
-		return $content_range + $upload_part_size;
+
+		# return computed tree-hash
+		return $res->header('x-amz-sha256-tree-hash');
 	} else {
 		carp 'request succeeded, but reported and computed tree-hash for part do not match';
 		return 0;
@@ -503,7 +502,7 @@ sub multipart_upload_complete {
 	croak "no vault name given" unless $vault_name;
 	croak "no multipart upload id given" unless $multipart_upload_id;
 	croak "no tree hash object given" unless ref $tree_hash eq 'Net::Amazon::TreeHash';
-	
+
 	# complete hash calculation
 	$tree_hash->calc_tree;
 
@@ -514,9 +513,9 @@ sub multipart_upload_complete {
 			'x-amz-archive-size' => $archive_size,
 		],
 	);
-	
+
 	return 0 unless $res->is_success;
-	
+
 	if ( $res->header('location') =~ m{^/([^/]+)/vaults/([^/]+)/archives/(.*)$} ) {
 		my ( $rec_uid, $rec_vault_name, $rec_archive_id ) = ( $1, $2, $3 );
 		return $rec_archive_id;
@@ -569,9 +568,9 @@ sub multipart_upload_part_list {
 	my ( $self, $vault_name, $multipart_upload_id ) = @_;
 	croak "no vault name given" unless $vault_name;
 	croak "no multipart_upload_id given" unless $multipart_upload_id;
-	
+
 	my @upload_part_list;
-	
+
 	my $marker;
 	do {
 		#1000 is the default limit, send a marker if needed
@@ -599,9 +598,9 @@ Calls to List Multipart Uploads in the API are L<free|http://aws.amazon.com/glac
 sub multipart_upload_list {
 	my ( $self, $vault_name ) = @_;
 	croak "no vault name given" unless $vault_name;
-	
+
 	my @upload_list;
-	
+
 	my $marker;
 	do {
 		#1000 is the default limit, send a marker if needed
@@ -755,19 +754,19 @@ Calls to List Jobs in the API are L<free|http://aws.amazon.com/glacier/pricing/#
 sub list_jobs {
 	my ( $self, $vault_name ) = @_;
 	croak "no vault name given" unless $vault_name;
-	
+
 	my @completed_jobs;
-	
+
 	my $marker;
 	do {
 		#1000 is the default limit, send a marker if needed
 		my $res = $self->_send_receive( GET => "/-/vaults/$vault_name/jobs?limit=1000" . ($marker?'&'.$marker:'') );
 		my $decoded = $self->_decode_and_handle_response( $res );
-		
+
 		push @completed_jobs, @{$decoded->{JobList}};
 		$marker = $decoded->{Marker};
 	} while ( $marker );
-	
+
 	return ( \@completed_jobs );
 }
 
@@ -775,7 +774,7 @@ sub list_jobs {
 
 sub _decode_and_handle_response {
 	my ( $self, $res ) = @_;
-	
+
 	if ( $res->is_success ) {
 		return decode_json( $res->decoded_content );
 	} else {
