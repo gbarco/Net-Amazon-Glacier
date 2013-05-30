@@ -422,7 +422,7 @@ Dead ends could occur like trying to upload a >10000Mb archive with partsize
 1Mb. When in doubt use multipart_upload_auto.
 Absolute maximum online archive size is 4GB*10000 or sligthly over 39Tb. L<Uploading Large Archives in Parts (Multipart Upload) Quick Facts|docs.aws.amazon.com/amazonglacier/latest/dev/uploading-archive-mpu.html#qfacts>
 $tree_hash is a Net::Amazon::TreeHash to store cumulative file hash needed to complete upload
-$part can must evaluate to a string or be a filehandle and must be exactly
+$part can must be a reference to a string or be a filehandle and must be exactly
 the part_size supplied to multipart_upload_initiate or part upload will fail
 Returns uploaded part size (which should be used to keep track of uploaded
 ranges). When in doubt use multipart_upload_auto.
@@ -436,36 +436,40 @@ sub multipart_upload_part {
 	croak "no multipart upload id given" unless $multipart_upload_id;
 	croak "no tree hash object given" unless ref $tree_hash eq 'Net::Amazon::TreeHash';
 	
+	# correct possible undefined range
+	$content_range = 0 unless defined $content_range;
+	
 	# try to slurp the fileidentify $part as filehandle or string and get content
 	my $content = '';
 	
 	if ( ref $part eq 'GLOB' or ref \$part eq 'GLOB' ) { #works with IO::Handle/File
 		$content = read_file( $part );
-		croak "no data in filehandle" unless length $content;
+		$content = \$content;
+		croak "no data in filehandle" unless length $$content;
 	} else {
-		#interpret as scalar
-		$content = scalar $part;
-		croak "no data supplied" unless length $content;
+		# keep scalar reference
+		$content = $part;
+		croak "no data supplied" unless length $$content;
 	}
 
-	my $upload_part_size = length $content;
+	my $upload_part_size = length $$content;
 	
 	# compute part hash
 	my $th = Net::Amazon::TreeHash->new();
 	
-	$th->eat_data( \$content );
+	$th->eat_data( $content );
 	
 	my $res = $self->_send_receive(
 		PUT => "/-/vaults/$vault_name/multipart-uploads/$multipart_upload_id",
 		[
-			'Content-Range:bytes ' . $content_range . '-' . ( $content_range + $upload_part_size ). '/*',
-			'Content-Length:' . $upload_part_size,
-			'Content-Type: application/octet-stream',
+			'Content-Range' => 'bytes ' . $content_range . '-' . ( $content_range + $upload_part_size - 1) . '/*',
+			'Content-Length' => $upload_part_size,
+			'Content-Type' => 'application/octet-stream',
 			'x-amz-sha256-tree-hash' => $th->get_final_hash(),
-			#'x-amz-content-sha256' => sha256_hex( $content ),
+			'x-amz-content-sha256' => sha256_hex( $$content ),
 			# documentation error only tree-hash needed
 		],
-		$content
+		$$content
 	);
 	
 	return 0 unless $res->is_success;
@@ -473,7 +477,7 @@ sub multipart_upload_part {
 	# check glacier tree-hash = local tree-hash
 	if ( $th->get_final_hash() eq $res->header('x-amz-sha256-tree-hash') ) {
 		# add hash to global tree hash only on success
-		$tree_hash->eat_data( \$content );
+		$tree_hash->eat_data( $content );
 		
 		# return range after upload
 		return $content_range + $upload_part_size;
@@ -499,6 +503,9 @@ sub multipart_upload_complete {
 	croak "no vault name given" unless $vault_name;
 	croak "no multipart upload id given" unless $multipart_upload_id;
 	croak "no tree hash object given" unless ref $tree_hash eq 'Net::Amazon::TreeHash';
+	
+	# complete hash calculation
+	$tree_hash->calc_tree;
 
 	my $res = $self->_send_receive(
 		POST => "/-/vaults/$vault_name/multipart-uploads/$multipart_upload_id",
