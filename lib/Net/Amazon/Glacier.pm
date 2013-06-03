@@ -7,13 +7,12 @@ use feature 'say';
 
 use Net::Amazon::Signature::V4;
 use Net::Amazon::TreeHash;
-use Digest::SHA;
 
 use HTTP::Request;
 use LWP::UserAgent;
-use JSON::PP;
+use JSON;
 use POSIX qw/strftime/;
-use Digest::SHA qw/sha256_hex/;
+use Digest::SHA;
 use File::Slurp;
 use Carp;
 
@@ -94,7 +93,7 @@ sub new {
 	croak "no region specified" unless $region;
 	croak "no access key specified" unless $access_key_id;
 	croak "no secret specified" unless $secret;
-	
+
 	my $self = {
 		region => $region,
 		ua     => LWP::UserAgent->new(),
@@ -270,7 +269,7 @@ sub upload_archive {
 		[
 			'x-amz-archive-description' => $description,
 			'x-amz-sha256-tree-hash' => $th->get_final_hash(),
-			'x-amz-content-sha256' => sha256_hex( $content ),
+			'x-amz-content-sha256' => Digest::SHA::sha256_hex( $content ),
 		],
 		$content
 	);
@@ -306,44 +305,44 @@ sub delete_archive {
 	Multipart code snippet
 
 	use Net::Amazon::Glacier;
-	
+
 	my $glacier = Net::Amazon::Glacier->new(
 		'eu-west-1',
 		'AKIMYACCOUNTID',
 		'MYSECRET',
 	);
-	
+
 	my $part_size = $glacier->calculate_multipart_upload_partsize( -s $filename );
 
 	my $upload_id = $glacier->multipart_upload_init( $vault, $part_size, $description );
-	
+
 	open ( A_FILE, '<', 'a_file.bin' );
-		
+
 	my $part_index = 0;
 	my $read_bytes;
 	my $parts_hash = []; # to store partial tree hash for complete method
-	
+
 	# Upload parts of A_FILE
 	do {
 		$read_bytes = read ( A_FILE, $part, $part_size );
 		$parts_hash->[$part_index] = $glacier->multipart_upload_upload_part( $vault, $upload_id, $part_size, $part_index, \$part );
 	} while ( ( $read_bytes == $part_size) && $parts_hash->[$part_index++] =~ /^[0-9a-f]{64}$/ );
 	close ( A_FILE );
-	
+
 	# Capture archive id or error code
 	my $archive_id = $glacier->multipart_upload_complete( $vault, $upload_id, $parts_hash, $part_size * ( $part_index - 1) + $read_bytes  );
-	
+
 	# Check if we have a valid $archive_id
 	unless ( $archive_id =~ /^[a-zA-Z0-9_\-]{10,}$/ ) {
 		# abort partial failed upload
 		# could also store upload_id and continue later
 		$glacier->multipart_upload_abort( $vault, $upload_id );
 	}
-	
+
 	# Other useful methods
 	# Get an array ref with incomplete multipart uploads
 	my $upload_list = $glacier->multipart_upload_list_uploads( $vault );
-	
+
 	# Get an array ref with uploaded parts for a multipart upload
 	my $upload_parts = $glacier->multipart_upload_list_parts( $vault, $upload_id );
 
@@ -358,13 +357,13 @@ $archive_size, 0 when files cannot be uploaded in parts (i.e. >39Tb)
 
 sub calculate_multipart_upload_partsize {
 	my ( $self, $archive_size ) = @_;
-	
+
 	# get the size of a part if uploaded in the maximum possible parts in MiB
 	my $part_size = ( $archive_size - 1) / 10000;
-	
+
 	# the smallest power of 2 that fits this amount of MiB
 	my $part_size_MiB_rounded = 2**(int(log($part_size)/log(2))+1);
-	
+
 	# range check response for minimum and maximum API limits
 	if ( $part_size_MiB_rounded < 1024 * 1024 ) {
 		# part size must be at least 1MiB
@@ -393,7 +392,7 @@ L<Initiate Multipart Upload (POST multipart-uploads)|http://docs.aws.amazon.com/
 
 sub multipart_upload_init {
 	my ( $self, $vault_name, $part_size, $description) = @_;
-	
+
 	croak "no vault name given" unless $vault_name;
 	croak "no part size given" unless $part_size;
 	croak "parameter number mismatch" unless @_ == 3 || @_ == 4;
@@ -439,7 +438,7 @@ L<Upload Part (PUT uploadID)|http://docs.aws.amazon.com/amazonglacier/latest/dev
 
 sub multipart_upload_upload_part {
 	my ( $self, $vault_name, $multipart_upload_id, $part_size, $part_index, $part ) = @_;
-	
+
 	croak "no vault name given" unless $vault_name;
 	croak "no multipart upload id given" unless $multipart_upload_id;
 	croak "parameter number mismatch" unless @_ == 6;
@@ -458,14 +457,14 @@ sub multipart_upload_upload_part {
 	}
 
 	my $upload_part_size = length $$content;
-	
+
 	# compute part hash
 	my $th = Net::Amazon::TreeHash->new();
 
 	$th->eat_data( $content );
-	
+
 	$th->calc_tree();
-	
+
 	# range end must not be ( $part_size * ( $part_index + 1 ) - 1 ) or last part
 	# will fail.
 	my $res = $self->_send_receive(
@@ -475,7 +474,7 @@ sub multipart_upload_upload_part {
 			'Content-Length' => $upload_part_size,
 			'Content-Type' => 'application/octet-stream',
 			'x-amz-sha256-tree-hash' => $th->get_final_hash(),
-			'x-amz-content-sha256' => sha256_hex( $$content ),
+			'x-amz-content-sha256' => Digest::SHA::sha256_hex( $$content ),
 			# documentation seems to suggest x-amz-content-sha256 may not be needed but it is!
 		],
 		$$content
@@ -553,7 +552,7 @@ L<Abort Multipart Upload (DELETE uploadID)|http://docs.aws.amazon.com/amazonglac
 
 sub multipart_upload_abort {
 	my ( $self, $vault_name, $multipart_upload_id ) = @_;
-	
+
 	croak "no vault name given" unless $vault_name;
 	croak "no multipart_upload_id given" unless $multipart_upload_id;
 	croak "parameter number mismatch" unless @_ == 3;
@@ -587,7 +586,7 @@ Calls to List Parts in the API are L<free|http://aws.amazon.com/glacier/pricing/
 
 sub multipart_upload_list_parts {
 	my ( $self, $vault_name, $multipart_upload_id ) = @_;
-	
+
 	croak "no vault name given" unless $vault_name;
 	croak "no multipart_upload_id given" unless $multipart_upload_id;
 	croak "parameter number mismatch" unless @_ == 3;
@@ -620,7 +619,7 @@ Calls to List Multipart Uploads in the API are L<free|http://aws.amazon.com/glac
 
 sub multipart_upload_list_uploads {
 	my ( $self, $vault_name ) = @_;
-	
+
 	croak "no vault name given" unless $vault_name;
 	croak "parameter number mismatch" unless @_ == 2;
 
@@ -805,16 +804,16 @@ sub list_jobs {
 sub _tree_hash_from_array_ref {
 	my ( $self, $tree_hash_array_ref ) = @_;
 	croak "no tree hash object given" unless ref $tree_hash_array_ref eq 'ARRAY';
-	
+
 	# copy array to temporary array mapped to byte values
 	my @prevLvlHashes = map( pack("H*", $_), @{$tree_hash_array_ref} );
-	
+
 	# consume parts in pairs A (+) B until we have one part (unrolled recursive)
 	while ( @prevLvlHashes > 1 ) {
 		my ( $prevLvlIterator, $currLvlIterator );
-		
+
 		my @currLvlHashes;
-		
+
 		# consume two elements form previous level to make for one element of the
 		# next level, last elements on odd sized arrays copied verbatim to next level
 		for ( $prevLvlIterator = 0, $currLvlIterator = 0; $prevLvlIterator < @prevLvlHashes; $prevLvlIterator+=2 ) {
@@ -825,11 +824,11 @@ sub _tree_hash_from_array_ref {
 				push @currLvlHashes, $prevLvlHashes[ $prevLvlIterator ];
 			}
 		}
-		
+
 		# advance one level
 		@prevLvlHashes = @currLvlHashes;
 	}
-	
+
 	# return resulting array as string of hex values
 	return unpack( 'H*', $prevLvlHashes[0] );
 }
