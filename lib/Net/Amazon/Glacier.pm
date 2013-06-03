@@ -7,6 +7,7 @@ use feature 'say';
 
 use Net::Amazon::Signature::V4;
 use Net::Amazon::TreeHash;
+use Digest::SHA;
 
 use HTTP::Request;
 use LWP::UserAgent;
@@ -90,6 +91,10 @@ The functions are intended to closely reflect Amazon's Glacier API. Please see A
 sub new {
 	my $class = shift;
 	my ( $region, $access_key_id, $secret ) = @_;
+	croak "no region specified" unless $region;
+	croak "no access key specified" unless $access_key_id;
+	croak "no secret specified" unless $secret;
+	
 	my $self = {
 		region => $region,
 		ua     => LWP::UserAgent->new(),
@@ -298,96 +303,100 @@ sub delete_archive {
 
 =head2 SYNOPSIS
 
-Multipart code snippet
+	Multipart code snippet
 
 	use Net::Amazon::Glacier;
-
+	
 	my $glacier = Net::Amazon::Glacier->new(
 		'eu-west-1',
 		'AKIMYACCOUNTID',
 		'MYSECRET',
 	);
+	
+	my $part_size = $glacier->calculate_multipart_upload_partsize( -s $filename );
 
-	my $multipart_upload_id = $glacier->multipart_upload_inititate( $vault, $description, $part_size )
-	while ( custom_have_chunks_sub() ) {
-		my $chunk = custom_get_next_chunk_sub();
-		$glacier->multipart_upload_part ( $multipart_upload_id)
+	my $upload_id = $glacier->multipart_upload_init( $vault, $part_size, $description );
+	
+	open ( A_FILE, '<', 'a_file.bin' );
+		
+	my $part_index = 0;
+	my $read_bytes;
+	my $parts_hash = []; # to store partial tree hash for complete method
+	
+	# Upload parts of A_FILE
+	do {
+		$read_bytes = read ( A_FILE, $part, $part_size );
+		$parts_hash->[$part_index] = $glacier->multipart_upload_upload_part( $vault, $upload_id, $part_size, $part_index, \$part );
+	} while ( ( $read_bytes == $part_size) && $parts_hash->[$part_index++] =~ /^[0-9a-f]{64}$/ );
+	close ( A_FILE );
+	
+	# Capture archive id or error code
+	my $archive_id = $glacier->multipart_upload_complete( $vault, $upload_id, $parts_hash, $part_size * ( $part_index - 1) + $read_bytes  );
+	
+	# Check if we have a valid $archive_id
+	unless ( $archive_id =~ /^[a-zA-Z0-9_\-]{10,}$/ ) {
+		# abort partial failed upload
+		# could also store upload_id and continue later
+		$glacier->multipart_upload_abort( $vault, $upload_id );
 	}
+	
+	# Other useful methods
+	# Get an array ref with incomplete multipart uploads
+	my $upload_list = $glacier->multipart_upload_list_uploads( $vault );
+	
+	# Get an array ref with uploaded parts for a multipart upload
+	my $upload_parts = $glacier->multipart_upload_list_parts( $vault, $upload_id );
 
-	# Get parts for this upload and maybe check we got all parts for this upload
-	$glacier->multipart_upload_part_list( $multipart_upload_id );
+=head2 calculate_multipart_upload_partsize ( $archive_size )
 
-	# Close this upload (croaks if parts are missing)
-	$glacier->multipart_upload_complete( $multipart_upload_id );
-
-	# Check out how many panding multipart upload we have around
-	$glacier->multipart_upload_list();
-
-=head2 multipart_upload_managed ( $vault_name, $file_paths, [ $concurrence ], [ $description ] )
-
-Upload single or multiple files in multiple parts as a single archive.
-$file_paths is either a string file path or a reference to an array of paths.
-Automatically reverts to single part upload if files are smaller than minimum
-part size.
-Guesses a viable part size to upload files up to 39Tb API limit internally using
-multipart_upload_guess_part_size.
-Supports files of different sizes.
-Beware that memory must be allocated for many times the part size and increases
-as archive size increases. Some effort is made to spool data to temporary files.
-If $concurrence > 1 multiple threads maybe fired to upload parts in parallel up
-to the number especified in concurrence.
-Runs until all parts have been uploaded. Could take really long.
-Calls the apropiate multipart API to initiate, upload parts and complete the
-archive upload process. Croaks on many possible errors.
-Returns an archive id that can be used to request a job to retrieve the archive
-at a later time on success.
+Calculates the part size that would allow to upload a files of $archive_size
+$archive_size is the maximum expected archive size
+Returns the smallest possible part size to upload an archive of size
+$archive_size, 0 when files cannot be uploaded in parts (i.e. >39Tb)
 
 =cut
 
-sub multipart_upload_managed {
-	my ( $vault_name, $file_paths, $concurrence, $description ) = @_;
-	$concurrence = 1 if ( $concurrence < 1 );
-
-	my $archive_id;
-
-	return $archive_id;
+sub calculate_multipart_upload_partsize {
+	my ( $self, $archive_size ) = @_;
+	
+	# get the size of a part if uploaded in the maximum possible parts in MiB
+	my $part_size = ( $archive_size - 1) / 10000;
+	
+	# the smallest power of 2 that fits this amount of MiB
+	my $part_size_MiB_rounded = 2**(int(log($part_size)/log(2))+1);
+	
+	# range check response for minimum and maximum API limits
+	if ( $part_size_MiB_rounded < 1024 * 1024 ) {
+		# part size must be at least 1MiB
+		return 1024 * 1024;
+	} elsif ( $part_size_MiB_rounded > 4 * 1024 * 1024 * 1024 ) {
+		# part size must not exceed 4GiB
+		return 0;
+	} else {
+		return $part_size_MiB_rounded;
+	}
 }
 
-=head2 multipart_upload_guess_part_size ( $file_paths )
+=head2 multipart_upload_init( $vault_name, $part_size, [ $description ] )
 
-Guesses a part size that would allow to upload all files in $file_paths.
-$file_paths is either a string file path or a reference to an array of paths.
-Returns a one of the smallest possible part size to upload the group of files on
-success, 0 when files cannot be uploaded in parts (i.e. >39Tb)
-
-=cut
-
-sub multipart_upload_guess_part_size {
-	my ( $file_paths ) = @_;
-	my $part_size;
-
-	return $part_size;
-}
-
-=head2 multipart_upload_initiate( $vault_name, $part_size, [ $description ] )
-
-Initiates a multi part upload.
+Initiates a multipart upload.
 $part_size should be carefully calculated to avoid dead ends as documented in
-the API. When in doubt use multipart_upload_auto or
-multipart_upload_guess_part_size.
-Returns an multipart upload id that should be used to adding parts to the online
-archive that is being constructed.
+the API. Use calculate_multipart_upload_partsize.
+Returns a multipart upload id that should be used while adding parts to the
+online archive that is being constructed.
 Multipart upload ids are valid until multipart_upload_abort is called or 24
-hours after last archive related activity is registered. After that period
-id validity should not be expected.
+hours after last archive related activity is registered. After that period id
+validity should not be expected.
 L<Initiate Multipart Upload (POST multipart-uploads)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-multipart-initiate-upload.html>.
 
 =cut
 
-sub multipart_upload_initiate {
+sub multipart_upload_init {
 	my ( $self, $vault_name, $part_size, $description) = @_;
+	
 	croak "no vault name given" unless $vault_name;
 	croak "no part size given" unless $part_size;
+	croak "parameter number mismatch" unless @_ == 3 || @_ == 4;
 
 	my $multipart_upload_id;
 
@@ -404,39 +413,38 @@ sub multipart_upload_initiate {
 
 	# double check the webservice speaks the same language
 	unless ( $multipart_upload_id ) {
-		carp 'request succeeded, but reported no multipart upload id was returned';
+		carp 'request succeeded, but no multipart upload id was returned';
 		return 0;
 	}
 
 	return $multipart_upload_id;
 }
 
-=head2 multipart_upload_part( $vault_name, $multipart_upload_id, $content_range, $tree_hash, $part )
+=head2 multipart_upload_upload_part( $vault_name, $multipart_upload_id, $part_size, $part_index, $part )
 
 Uploads a certain range of a multipart upload.
-$content_range should be the floor of the range to be uploaded and must be part
-size aligned. i.e. valid ranges for a part size of 1Mb are 0, 1048576,
-2097152 .. 10484711424 or 1Mb*0, 1Mb*1, 1Mb*2..1Mb*9999 (remember the 10000
-parts limit). Range end is calculated from part size.
-Dead ends could occur like trying to upload a >10000Mb archive with partsize
-1Mb. When in doubt use multipart_upload_auto.
-Absolute maximum online archive size is 4GB*10000 or sligthly over 39Tb. L<Uploading Large Archives in Parts (Multipart Upload) Quick Facts|docs.aws.amazon.com/amazonglacier/latest/dev/uploading-archive-mpu.html#qfacts>
-$tree_hash is a Net::Amazon::TreeHash to store cumulative file hash needed to complete upload
+$part_size must be the same supplied to multipart_upload_init for a given
+multipart upload.
+$part_index should be the index of a file of N $part_size chunks whose data is
+passed in $part.
 $part can must be a reference to a string or be a filehandle and must be exactly
-the part_size supplied to multipart_upload_initiate or part upload will fail
-Returns uploaded part size (which should be used to keep track of uploaded
-ranges). When in doubt use multipart_upload_auto.
+the part_size supplied to multipart_upload_initiate unless it is the last past
+which can be any non-zero size.
+Absolute maximum online archive size is 4GB*10000 or slightly over 39Tb. L<Uploading Large Archives in Parts (Multipart Upload) Quick Facts|docs.aws.amazon.com/amazonglacier/latest/dev/uploading-archive-mpu.html#qfacts>
+Returns uploaded part tree-hash (which should be store in an array ref to be
+passed to multipart_upload_complete
 L<Upload Part (PUT uploadID)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-upload-part.html>.
 
 =cut
 
-sub multipart_upload_part {
-	my ( $self, $vault_name, $multipart_upload_id, $part_size, $part_index, $tree_hash, $part ) = @_;
+sub multipart_upload_upload_part {
+	my ( $self, $vault_name, $multipart_upload_id, $part_size, $part_index, $part ) = @_;
+	
 	croak "no vault name given" unless $vault_name;
 	croak "no multipart upload id given" unless $multipart_upload_id;
-	croak "no tree hash object given" unless ref $tree_hash eq 'Net::Amazon::TreeHash';
+	croak "parameter number mismatch" unless @_ == 6;
 
-	# try to slurp the fileidentify $part as filehandle or string and get content
+	# identify $part as filehandle or string and get content
 	my $content = '';
 
 	if ( ref $part eq 'GLOB' or ref \$part eq 'GLOB' ) { #works with IO::Handle/File
@@ -450,12 +458,14 @@ sub multipart_upload_part {
 	}
 
 	my $upload_part_size = length $$content;
-
+	
 	# compute part hash
 	my $th = Net::Amazon::TreeHash->new();
 
 	$th->eat_data( $content );
-
+	
+	$th->calc_tree();
+	
 	# range end must not be ( $part_size * ( $part_index + 1 ) - 1 ) or last part
 	# will fail.
 	my $res = $self->_send_receive(
@@ -466,7 +476,7 @@ sub multipart_upload_part {
 			'Content-Type' => 'application/octet-stream',
 			'x-amz-sha256-tree-hash' => $th->get_final_hash(),
 			'x-amz-content-sha256' => sha256_hex( $$content ),
-			# documentation error only tree-hash needed
+			# documentation seems to suggest x-amz-content-sha256 may not be needed but it is!
 		],
 		$$content
 	);
@@ -475,10 +485,8 @@ sub multipart_upload_part {
 
 	# check glacier tree-hash = local tree-hash
 	if ( $th->get_final_hash() eq $res->header('x-amz-sha256-tree-hash') ) {
-		# add hash to global tree hash only on success
-		$tree_hash->eat_data( $content );
 
-		# return computed tree-hash
+		# return computed tree-hash for this part
 		return $res->header('x-amz-sha256-tree-hash');
 	} else {
 		carp 'request succeeded, but reported and computed tree-hash for part do not match';
@@ -486,36 +494,46 @@ sub multipart_upload_part {
 	}
 }
 
-=head2 multipart_upload_complete( $vault_name, $multipart_upload_id, $tree_hash, $archive_size )
+=head2 multipart_upload_complete( $vault_name, $multipart_upload_id, $tree_hash_array_ref, $archive_size )
 
 Signals completion of multipart upload.
-Archive size if provided at completion to allow for archive streaming a.k.a.
-upload archives of unknown size. Behold of dead ends when choosing part size.
+$tree_hash_array_ref must be an ordered list (same order as final assembled online
+archive, as opposed to upload order) of partial tree hashes as returned by
+multipart_upload_upload_part
+$archive_size is provided at completion to check all parts make up an archive an
+not before hand to allow for archive streaming a.k.a. upload archives of unknown
+size. Behold of dead ends when choosing part size. Use
+calculate_multipart_upload_partsize to select a part size that will work.
 Returns an archive id that can be used to request a job to retrieve the archive
-at a later time on success.
+at a later time on success and 0 on failure.
+On failure multipart_upload_list_parts could be used to determine the missing
+part or recover the partial tree hashes, complete the missing parts and
+recalculate the correct archive tree hash and call multipart_upload_complete
+with a successful result.
 L<Complete Multipart Upload (POST uploadID)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-multipart-complete-upload.html>.
 
 =cut
 
 sub multipart_upload_complete {
-	my ( $self, $vault_name, $multipart_upload_id, $tree_hash, $archive_size ) = @_;
+	my ( $self, $vault_name, $multipart_upload_id, $tree_hash_array_ref, $archive_size ) = @_;
 	croak "no vault name given" unless $vault_name;
 	croak "no multipart upload id given" unless $multipart_upload_id;
-	croak "no tree hash object given" unless ref $tree_hash eq 'Net::Amazon::TreeHash';
+	croak "no tree hash object given" unless ref $tree_hash_array_ref eq 'ARRAY';
+	croak "parameter number mismatch" unless @_ == 5;
 
-	# complete hash calculation
-	$tree_hash->calc_tree;
+	my $archive_tree_hash = $self->_tree_hash_from_array_ref( $tree_hash_array_ref );
 
 	my $res = $self->_send_receive(
 		POST => "/-/vaults/$vault_name/multipart-uploads/$multipart_upload_id",
 		[
-			'x-amz-sha256-tree-hash' => $tree_hash->get_final_hash(),
+			'x-amz-sha256-tree-hash' => $archive_tree_hash ,
 			'x-amz-archive-size' => $archive_size,
 		],
 	);
 
 	return 0 unless $res->is_success;
 
+	# check the webservice stored the file on same location
 	if ( $res->header('location') =~ m{^/([^/]+)/vaults/([^/]+)/archives/(.*)$} ) {
 		my ( $rec_uid, $rec_vault_name, $rec_archive_id ) = ( $1, $2, $3 );
 		return $rec_archive_id;
@@ -528,15 +546,17 @@ sub multipart_upload_complete {
 =head2 multipart_upload_abort( $vault_name, $multipart_upload_id )
 
 Aborts multipart upload releasing the id and related online resources of
-partially uploaded archive.
+a partially uploaded archive.
 L<Abort Multipart Upload (DELETE uploadID)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-multipart-abort-upload.html>.
 
 =cut
 
 sub multipart_upload_abort {
 	my ( $self, $vault_name, $multipart_upload_id ) = @_;
+	
 	croak "no vault name given" unless $vault_name;
 	croak "no multipart_upload_id given" unless $multipart_upload_id;
+	croak "parameter number mismatch" unless @_ == 3;
 
 	my $res = $self->_send_receive(
 		DELETE => "/-/vaults/$vault_name/multipart-uploads/$multipart_upload_id",
@@ -555,8 +575,9 @@ sub multipart_upload_abort {
 
 =head2 multipart_upload_part_list( $vault_name, $multipart_upload_id )
 
-Returns an array with information on all uploaded parts of the, probably
+Returns an array ref with information on all uploaded parts of the, probably
 partially uploaded, online archive.
+Useful to recover file part tree hashes and complete a broken multipart upload.
 L<List Parts (GET uploadID)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-multipart-list-parts.html>
 
 A call to multipart_upload_part_list can result in many calls to the the Amazon API at a rate of 1 per 1,000 recently completed job in existence.
@@ -564,10 +585,12 @@ Calls to List Parts in the API are L<free|http://aws.amazon.com/glacier/pricing/
 
 =cut
 
-sub multipart_upload_part_list {
+sub multipart_upload_list_parts {
 	my ( $self, $vault_name, $multipart_upload_id ) = @_;
+	
 	croak "no vault name given" unless $vault_name;
 	croak "no multipart_upload_id given" unless $multipart_upload_id;
+	croak "parameter number mismatch" unless @_ == 3;
 
 	my @upload_part_list;
 
@@ -586,7 +609,7 @@ sub multipart_upload_part_list {
 
 =head2 multipart_upload_list( $vault_name )
 
-Returns an array with information on all non completed multipart uploads.
+Returns an array ref with information on all non completed multipart uploads.
 Useful to recover multipart upload ids.
 L<List Multipart Uploads (GET multipart-uploads)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-multipart-list-uploads.html>
 
@@ -595,9 +618,11 @@ Calls to List Multipart Uploads in the API are L<free|http://aws.amazon.com/glac
 
 =cut
 
-sub multipart_upload_list {
+sub multipart_upload_list_uploads {
 	my ( $self, $vault_name ) = @_;
+	
 	croak "no vault name given" unless $vault_name;
+	croak "parameter number mismatch" unless @_ == 2;
 
 	my @upload_list;
 
@@ -772,6 +797,43 @@ sub list_jobs {
 
 # helper functions
 
+# receives an array ref of hex strings as returned by multipart_upload_upload_part
+# the array ref must be in the resulting online archive order as oppossed to the
+# upload order
+# returns an hex string representing the tree hash of the complete archive for
+# use in multipart_upload_complete
+sub _tree_hash_from_array_ref {
+	my ( $self, $tree_hash_array_ref ) = @_;
+	croak "no tree hash object given" unless ref $tree_hash_array_ref eq 'ARRAY';
+	
+	# copy array to temporary array mapped to byte values
+	my @prevLvlHashes = map( pack("H*", $_), @{$tree_hash_array_ref} );
+	
+	# consume parts in pairs A (+) B until we have one part (unrolled recursive)
+	while ( @prevLvlHashes > 1 ) {
+		my ( $prevLvlIterator, $currLvlIterator );
+		
+		my @currLvlHashes;
+		
+		# consume two elements form previous level to make for one element of the
+		# next level, last elements on odd sized arrays copied verbatim to next level
+		for ( $prevLvlIterator = 0, $currLvlIterator = 0; $prevLvlIterator < @prevLvlHashes; $prevLvlIterator+=2 ) {
+			if ( @prevLvlHashes - $prevLvlIterator > 1) {
+				# store digest in next level as byte values
+				push @currLvlHashes, Digest::SHA::sha256( $prevLvlHashes[ $prevLvlIterator ], $prevLvlHashes[ $prevLvlIterator + 1 ] );
+			} else {
+				push @currLvlHashes, $prevLvlHashes[ $prevLvlIterator ];
+			}
+		}
+		
+		# advance one level
+		@prevLvlHashes = @currLvlHashes;
+	}
+	
+	# return resulting array as string of hex values
+	return unpack( 'H*', $prevLvlHashes[0] );
+}
+
 sub _decode_and_handle_response {
 	my ( $self, $res ) = @_;
 
@@ -806,9 +868,16 @@ sub _send_request {
 	my ( $self, $req ) = @_;
 	my $res = $self->{ua}->request( $req );
 	if ( $res->is_error ) {
-		my $error = decode_json( $res->decoded_content );
-		carp sprintf 'Non-successful response: %s (%s)', $res->status_line, $error->{code};
-		carp decode_json( $res->decoded_content )->{message};
+		# try to decode Glacier error
+		eval {
+			my $error = decode_json( $res->decoded_content );
+			carp sprintf 'Non-successful response: %s (%s)', $res->status_line, $error->{code};
+			carp decode_json( $res->decoded_content )->{message};
+		};
+		if ( $@ ) {
+			# fall back to reporting ua errors
+			carp sprintf "[%d] %s %s\n", $res->code, $res->message, $res->decoded_content;
+		}
 	}
 	return $res;
 }
@@ -829,7 +898,7 @@ See also Victor Efimov's MT::AWS::Glacier, an application for AWS Glacier synchr
 
 =head1 AUTHORS
 
-Maintained and originally written by Tim Nordenfur, C<< <tim at gurka.se> >>. Support for job operations was contributed by Ted Reed at IMVU. Support for many operations was contributed by Gonzalo Barco.
+Maintained and originally written by Tim Nordenfur, C<< <tim at gurka.se> >>. Support for job operations was contributed by Ted Reed at IMVU. Support for many file operations and multipart uploads was contributed by Gonzalo Barco.
 
 =head1 BUGS
 
