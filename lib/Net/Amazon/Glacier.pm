@@ -88,18 +88,19 @@ The functions are intended to closely reflect Amazon's Glacier API. Please see A
 =cut
 
 sub new {
-	my $class = shift;
-	my ( $region, $access_key_id, $secret ) = @_;
+	my ( $class, $region, $access_key_id, $secret ) = @_;
+
 	croak "no region specified" unless $region;
 	croak "no access key specified" unless $access_key_id;
 	croak "no secret specified" unless $secret;
 
 	my $self = {
 		region => $region,
-		ua     => LWP::UserAgent->new(),
+		# be well behaved and tell who we are
+		ua     => LWP::UserAgent->new( agent=> __PACKAGE__ . '/' . $VERSION ),
 		sig    => Net::Amazon::Signature::V4->new( $access_key_id, $secret, $region, 'glacier' ),
 	};
-	bless $self, $class;
+	return bless $self, $class;
 }
 
 =head1 VAULT OPERATORS
@@ -112,8 +113,13 @@ L<Create Vault (PUT vault)|http://docs.aws.amazon.com/amazonglacier/latest/dev/a
 
 sub create_vault {
 	my ( $self, $vault_name ) = @_;
+
 	croak "no vault name given" unless $vault_name;
+
 	my $res = $self->_send_receive( PUT => "/-/vaults/$vault_name" );
+	# updated error severity
+	croak 'describe_vault failed with error ' . $res->status_line unless $res->is_success;
+
 	return $res->is_success;
 }
 
@@ -125,8 +131,13 @@ L<Delete Vault (DELETE vault)|http://docs.aws.amazon.com/amazonglacier/latest/de
 
 sub delete_vault {
 	my ( $self, $vault_name ) = @_;
+
 	croak "no vault name given" unless $vault_name;
+
 	my $res = $self->_send_receive( DELETE => "/-/vaults/$vault_name" );
+	# updated error severity
+	croak 'describe_vault failed with error ' . $res->status_line unless $res->is_success;
+
 	return $res->is_success;
 }
 
@@ -139,8 +150,13 @@ L<Describe Vault (GET vault)|http://docs.aws.amazon.com/amazonglacier/latest/dev
 
 sub describe_vault {
 	my ( $self, $vault_name ) = @_;
+
 	croak "no vault name given" unless $vault_name;
+
 	my $res = $self->_send_receive( GET => "/-/vaults/$vault_name" );
+	# updated error severity
+	croak 'describe_vault failed with error ' . $res->status_line unless $res->is_success;
+
 	return $self->_decode_and_handle_response( $res );
 }
 
@@ -162,11 +178,14 @@ sub list_vaults {
 	do {
 		#1000 is the default limit, send a marker if needed
 		my $res = $self->_send_receive( GET => "/-/vaults?limit=1000" . ($marker?'&'.$marker:'') );
+		# updated error severity
+		croak 'list_vaults failed with error ' . $res->status_line unless $res->is_success;
 		my $decoded = $self->_decode_and_handle_response( $res );
 
 		push @vaults, @{$decoded->{VaultList}};
 		$marker = $decoded->{Marker};
 	} while ( $marker );
+
 	return ( \@vaults );
 }
 
@@ -183,6 +202,7 @@ L<Set Vault Notification Configuration (PUT notification-configuration)|http://d
 
 sub set_vault_notifications {
 	my ( $self, $vault_name, $sns_topic, $events ) = @_;
+
 	croak "no vault name given" unless $vault_name;
 	croak "no sns topic given" unless $sns_topic;
 	croak "events should be an array ref" unless ref $events eq 'ARRAY';
@@ -201,6 +221,9 @@ sub set_vault_notifications {
 		],
 		encode_json($content_raw),
 	);
+	# updated error severity
+	croak 'get_vault_notifications failed with error ' . $res->status_line unless $res->is_success;
+
 	return $res->is_success;
 }
 
@@ -214,12 +237,15 @@ L<Get Vault Notifications (GET notification-configuration)|http://docs.aws.amazo
 
 sub get_vault_notifications {
 	my ( $self, $vault_name, $sns_topic, $events ) = @_;
+
 	croak "no vault name given" unless $vault_name;
 
 	my $res = $self->_send_receive(
 		PUT => "/-/vaults/$vault_name/notification-configuration",
 	);
-	return 0 unless $res->is_success;
+	# updated error severity
+	croak 'get_vault_notifications failed with error ' . $res->status_line unless $res->is_success;
+
 	return $self->_decode_and_handle_response( $res );
 }
 
@@ -233,11 +259,15 @@ L<Delete Vault Notifications (DELETE notification-configuration)|http://docs.aws
 
 sub delete_vault_notifications {
 	my ( $self, $vault_name, $sns_topic, $events ) = @_;
+
 	croak "no vault name given" unless $vault_name;
 
 	my $res = $self->_send_receive(
 		DELETE => "/-/vaults/$vault_name/notification-configuration",
 	);
+	# updated error severity
+	croak 'delete_vault_notifications failed with error ' . $res->status_line unless $res->is_success;
+
 	return $res->is_success;
 }
 
@@ -252,16 +282,16 @@ L<Upload Archive (POST archive)|http://docs.aws.amazon.com/amazonglacier/latest/
 
 sub upload_archive {
 	my ( $self, $vault_name, $archive_path, $description ) = @_;
+
 	croak "no vault name given" unless $vault_name;
 	croak "no archive path given" unless $archive_path;
 	croak 'archive path is not a file' unless -f $archive_path;
+
 	$description //= '';
-	my $content = read_file( $archive_path );
+	my $content = File::Slurp::read_file( $archive_path, err_mode => 'croak' );
 
 	my $th = Net::Amazon::TreeHash->new();
-	open( my $content_fh, '<', $archive_path ) or croak $!;
-	$th->eat_file( $content_fh );
-	close $content_fh;
+	$th->eat_data ( \$content );
 	$th->calc_tree;
 
 	my $res = $self->_send_receive(
@@ -273,14 +303,17 @@ sub upload_archive {
 		],
 		$content
 	);
-	return 0 unless $res->is_success;
-	if ( $res->header('location') =~ m{^/([^/]+)/vaults/([^/]+)/archives/(.*)$} ) {
-		my ( $rec_uid, $rec_vault_name, $rec_archive_id ) = ( $1, $2, $3 );
-		return $rec_archive_id;
+	croak 'upload_archive failed with error ' . $res->status_line unless $res->is_success;
+
+	my $rec_archive_id;
+	unless ( $res->header('location') =~ m{^/[^/]+/vaults/[^/]+/archives/(.*)$} ) {
+		# update severity of error. This method must return an archive id
+		croak 'request succeeded, but reported archive location does not match regex: ' . $res->header('location');
 	} else {
-		carp 'request succeeded, but reported archive location does not match regex: ' . $res->header('location');
-		return 0;
+		$rec_archive_id = $1;
 	}
+
+	return $rec_archive_id;
 }
 
 =head2 delete_archive( $vault_name, $archive_id )
@@ -292,9 +325,14 @@ L<Delete Archive (DELETE archive)|http://docs.aws.amazon.com/amazonglacier/lates
 
 sub delete_archive {
 	my ( $self, $vault_name, $archive_id ) = @_;
+
 	croak "no vault name given" unless $vault_name;
 	croak "no archive ID given" unless $archive_id;
+
 	my $res = $self->_send_receive( DELETE => "/-/vaults/$vault_name/archives/$archive_id" );
+	# updated error severity
+	croak 'delete_archive failed with error ' . $res->status_line unless $res->is_success;
+
 	return $res->is_success;
 }
 
@@ -369,8 +407,8 @@ sub calculate_multipart_upload_partsize {
 		# part size must be at least 1MiB
 		return 1024 * 1024;
 	} elsif ( $part_size_MiB_rounded > 4 * 1024 * 1024 * 1024 ) {
-		# part size must not exceed 4GiB
-		return 0;
+		# updated error severity
+		croak 'part size must not exceed 4GiB, this file size is not uploadable';
 	} else {
 		return $part_size_MiB_rounded;
 	}
@@ -406,15 +444,14 @@ sub multipart_upload_init {
 			'x-amz-part-size' => $part_size,
 		],
 	);
-	return 0 unless $res->is_success;
+	# updated error severity
+	croak 'multipart_upload_init failed with error ' . $res->status_line unless $res->is_success;
 
 	$multipart_upload_id = $res->header('x-amz-multipart-upload-id');
 
 	# double check the webservice speaks the same language
-	unless ( $multipart_upload_id ) {
-		carp 'request succeeded, but no multipart upload id was returned';
-		return 0;
-	}
+	# updated error severity
+	croak 'request succeeded, but no multipart upload id was returned' unless ( $multipart_upload_id );
 
 	return $multipart_upload_id;
 }
@@ -446,14 +483,19 @@ sub multipart_upload_upload_part {
 	# identify $part as filehandle or string and get content
 	my $content = '';
 
-	if ( ref $part eq 'GLOB' or ref \$part eq 'GLOB' ) { #works with IO::Handle/File
-		$content = read_file( $part );
-		$content = \$content;
-		croak "no data in filehandle" unless length $$content;
-	} else {
+	if ( ref $part eq 'SCALAR' ) {
 		# keep scalar reference
 		$content = $part;
 		croak "no data supplied" unless length $$content;
+	} else {
+		#try to read any other content a supported by File::Slurp
+		eval {
+			$content = File::Slurp::read_file( $part, err_mode => 'carp' );
+		};
+		croak "\$part interpreted as file (GLOB, IO::Handle/File) but error occured while reading: $@" if ( $@ );
+
+		$content = \$content;
+		croak "no data read from file" unless length $$content;
 	}
 
 	my $upload_part_size = length $$content;
@@ -479,18 +521,14 @@ sub multipart_upload_upload_part {
 		],
 		$$content
 	);
-
-	return 0 unless $res->is_success;
+	# updated error severity
+	croak 'multipart_upload_upload_part failed with error ' . $res->status_line unless $res->is_success;
 
 	# check glacier tree-hash = local tree-hash
-	if ( $th->get_final_hash() eq $res->header('x-amz-sha256-tree-hash') ) {
-
-		# return computed tree-hash for this part
-		return $res->header('x-amz-sha256-tree-hash');
-	} else {
-		carp 'request succeeded, but reported and computed tree-hash for part do not match';
-		return 0;
-	}
+	# updated error severity; multipart upload id must be returned
+	croak 'request succeeded, but reported and computed tree-hash for part do not match' unless ( $th->get_final_hash() eq $res->header('x-amz-sha256-tree-hash') );
+	# return computed tree-hash for this part
+	return $res->header('x-amz-sha256-tree-hash');
 }
 
 =head2 multipart_upload_complete( $vault_name, $multipart_upload_id, $tree_hash_array_ref, $archive_size )
@@ -515,6 +553,7 @@ L<Complete Multipart Upload (POST uploadID)|http://docs.aws.amazon.com/amazongla
 
 sub multipart_upload_complete {
 	my ( $self, $vault_name, $multipart_upload_id, $tree_hash_array_ref, $archive_size ) = @_;
+
 	croak "no vault name given" unless $vault_name;
 	croak "no multipart upload id given" unless $multipart_upload_id;
 	croak "no tree hash object given" unless ref $tree_hash_array_ref eq 'ARRAY';
@@ -529,17 +568,18 @@ sub multipart_upload_complete {
 			'x-amz-archive-size' => $archive_size,
 		],
 	);
+	# updated error severity
+	croak 'multipart_upload_complete failed with error ' . $res->status_line unless $res->is_success;
 
-	return 0 unless $res->is_success;
-
-	# check the webservice stored the file on same location
-	if ( $res->header('location') =~ m{^/([^/]+)/vaults/([^/]+)/archives/(.*)$} ) {
-		my ( $rec_uid, $rec_vault_name, $rec_archive_id ) = ( $1, $2, $3 );
-		return $rec_archive_id;
+	my $rec_archive_id;
+	unless ( $res->header('location') =~ m{^/[^/]+/vaults/[^/]+/archives/(.*)$} ) {
+		# update severity of error. This method must return an archive id
+		croak 'request succeeded, but reported archive location does not match regex: ' . $res->header('location');
 	} else {
-		carp 'request succeeded, but reported archive location does not match regex: ' . $res->header('location');
-		return 0;
+		$rec_archive_id = $1;
 	}
+
+	return $rec_archive_id;
 }
 
 =head2 multipart_upload_abort( $vault_name, $multipart_upload_id )
@@ -560,16 +600,14 @@ sub multipart_upload_abort {
 	my $res = $self->_send_receive(
 		DELETE => "/-/vaults/$vault_name/multipart-uploads/$multipart_upload_id",
 	);
-	return 0 unless $res->is_success;
+	# updated error severity
+	croak 'multipart_upload_abort failed with error ' . $res->status_line unless $res->is_success;
 
 	# double check the webservice speaks the same language
-	unless ( $res->code == 204 ) {
-		carp 'request succeeded, but response code is not 204 No Content';
-		return 0;
-	}
+	# updated error severity
+	croak 'request returned an invalid code' unless ( $res->code == 204 );
 
-	# return success
-	return 1;
+	return $res->is_success;
 }
 
 =head2 multipart_upload_part_list( $vault_name, $multipart_upload_id )
@@ -597,6 +635,8 @@ sub multipart_upload_list_parts {
 	do {
 		#1000 is the default limit, send a marker if needed
 		my $res = $self->_send_receive( GET => "/-/vaults/$vault_name/multipart-uploads/$multipart_upload_id?limit=1000" . ($marker?'&'.$marker:'') );
+		# updated error severity
+		croak 'multipart_upload_list_parts failed with error ' . $res->status_line unless $res->is_success;
 		my $decoded = $self->_decode_and_handle_response( $res );
 
 		push @upload_part_list, @{$decoded->{Parts}};
@@ -629,6 +669,8 @@ sub multipart_upload_list_uploads {
 	do {
 		#1000 is the default limit, send a marker if needed
 		my $res = $self->_send_receive( GET => "/-/vaults/$vault_name/multipart-uploads?limit=1000" . ($marker?'&'.$marker:'') );
+		# updated error severity
+		croak 'multipart_upload_list_uploads failed with error ' . $res->status_line unless $res->is_success;
 		my $decoded = $self->_decode_and_handle_response( $res );
 
 		push @upload_list, @{$decoded->{UploadsList}};
@@ -653,6 +695,7 @@ L<Initiate a Job (POST jobs)|docs.aws.amazon.com/amazonglacier/latest/dev/api-in
 
 sub initiate_archive_retrieval {
 	my ( $self, $vault_name, $archive_id, $description, $sns_topic ) = @_;
+
 	croak "no vault name given" unless $vault_name;
 	croak "no archive id given" unless $archive_id;
 
@@ -672,8 +715,9 @@ sub initiate_archive_retrieval {
 		[ ],
 		encode_json($content_raw),
 	);
+	# updated error severity; method must return a job id
+	croak 'initiate_archive_retrieval failed with error ' . $res->status_line unless $res->is_success;
 
-	return 0 unless $res->is_success;
 	return $res->header('x-amz-job-id');
 }
 
@@ -689,7 +733,9 @@ L<Initiate a Job (POST jobs)|docs.aws.amazon.com/amazonglacier/latest/dev/api-in
 
 sub initiate_inventory_retrieval {
 	my ( $self, $vault_name, $format, $description, $sns_topic ) = @_;
+
 	croak "no vault name given" unless $vault_name;
+	croak "no format given" unless $format;
 
 	my $content_raw = {
 		Type => 'inventory-retrieval',
@@ -709,8 +755,9 @@ sub initiate_inventory_retrieval {
 		[ ],
 		encode_json($content_raw),
 	);
+	# updated error severity; method must return a job id
+	croak 'initiate_inventory_retrieval failed with error ' . $res->status_line unless $res->is_success;
 
-	return 0 unless $res->is_success;
 	return $res->header('x-amz-job-id');
 }
 
@@ -738,6 +785,8 @@ L<Amazon Glacier Describe Job (GET JobID)|http://docs.aws.amazon.com/amazonglaci
 sub describe_job {
 	my ( $self, $vault_name, $job_id ) = @_;
 	my $res = $self->_send_receive( GET => "/-/vaults/$vault_name/jobs/$job_id" );
+	# updated error severity
+	croak 'describe_job failed with error ' . $res->status_line unless $res->is_success;
 	return $self->_decode_and_handle_response( $res );
 }
 
@@ -752,17 +801,19 @@ L<Amazon Glacier Get Job Output (GET output)|http://docs.aws.amazon.com/amazongl
 sub get_job_output {
 	my ( $self, $vault_name, $job_id, $range ) = @_;
 
+	croak "no vault name given" unless $vault_name;
+	croak "no job id given" unless $vault_name;
+
 	my $headers = [];
 
 	push @$headers, (Range => $range)
 		if defined($range);
 
 	my $res = $self->_send_receive( GET => "/-/vaults/$vault_name/jobs/$job_id/output", $headers );
-	if ( $res->is_success ) {
-		return $res->decoded_content;
-	} else {
-		return undef;
-	}
+	# updated error severity
+	croak 'get_job_output failed with error ' . $res->status_line unless $res->is_success;
+
+	return $res->decoded_content;
 }
 
 =head2 list_jobs( $vault_name )
@@ -777,6 +828,7 @@ Calls to List Jobs in the API are L<free|http://aws.amazon.com/glacier/pricing/#
 
 sub list_jobs {
 	my ( $self, $vault_name ) = @_;
+
 	croak "no vault name given" unless $vault_name;
 
 	my @completed_jobs;
@@ -785,6 +837,8 @@ sub list_jobs {
 	do {
 		#1000 is the default limit, send a marker if needed
 		my $res = $self->_send_receive( GET => "/-/vaults/$vault_name/jobs?limit=1000" . ($marker?'&'.$marker:'') );
+		# updated error severity
+		croak 'list_jobs failed with error ' . $res->status_line unless $res->is_success;
 		my $decoded = $self->_decode_and_handle_response( $res );
 
 		push @completed_jobs, @{$decoded->{JobList}};
@@ -803,7 +857,11 @@ sub list_jobs {
 # use in multipart_upload_complete
 sub _tree_hash_from_array_ref {
 	my ( $self, $tree_hash_array_ref ) = @_;
-	croak "no tree hash object given" unless ref $tree_hash_array_ref eq 'ARRAY';
+
+	croak "no tree hash object given" unless $tree_hash_array_ref;
+	croak "tree hash array ref is not an array reference" unless ref $tree_hash_array_ref eq 'ARRAY';
+	croak "tree hash array ref does not seem to contain sha256 hex strings" unless
+		length join ('', map m/^[0-9a-fA-F]{64}$/, @$tree_hash_array_ref) == scalar @$tree_hash_array_ref;
 
 	# copy array to temporary array mapped to byte values
 	my @prevLvlHashes = map( pack("H*", $_), @{$tree_hash_array_ref} );
