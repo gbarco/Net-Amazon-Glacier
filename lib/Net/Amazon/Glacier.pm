@@ -1014,15 +1014,6 @@ sub _send_request {
 	return $res;
 }
 
-=head1 NOT IMPLEMENTED
-
-The following parts of Amazon's API have not yet been implemented. This is mainly because the author hasn't had a use for them yet. If you do implement them, feel free to send a patch.
-
-=over 4
-
-=item * Multipart upload operations
-
-=back
 
 =head1 SEE ALSO
 
