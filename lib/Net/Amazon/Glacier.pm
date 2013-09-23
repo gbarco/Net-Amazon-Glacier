@@ -288,7 +288,7 @@ sub upload_archive {
 	croak 'archive path is not a file' unless -f $archive_path;
 
 	$description //= '';
-	my $content = File::Slurp::read_file( $archive_path, err_mode => 'croak' );
+	my $content = File::Slurp::read_file( $archive_path, err_mode => 'croak', binmode => ':raw' );
 
 	my $th = Net::Amazon::TreeHash->new();
 	$th->eat_data ( \$content );
