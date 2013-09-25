@@ -48,7 +48,7 @@ Perhaps a little code snippet.
 
 	if ( $glacier->create_vault( $vault ) ) {
 
-		if ( my $archive_id = $glacier->upload_archive( './archive.7z' ) ) {
+		if ( my $archive_id = $glacier->upload_archive( $vault, './archive.7z' ) ) {
 
 			my $job_id = $glacier->inititate_job( $vault, $archive_id );
 
@@ -273,22 +273,80 @@ sub delete_vault_notifications {
 
 =head1 ARCHIVE OPERATIONS
 
-=head2 upload_archive( $vault_name, $archive_path, [ $description ] )
+=head2 upload_archive( $vault_name, $archive_path, [ $description ], [ $direct_content ] )
 
-Uploads an archive to the specified vault. $archive_path is the local path to any file smaller than 4GB. For larger files, see multi-part upload. An archive description of up to 1024 printable ASCII characters can be supplied. Returns the Amazon-generated archive ID on success, or false on failure.
+Uploads an archive to the specified vault. $archive_path_or_content is the local path to any file smaller than 4GB. For larger files, see multi-part upload. An archive description of up to 1024 printable ASCII characters can be supplied. Returns the Amazon-generated archive ID on success, or false on failure.
+Alternativelly $archive_path can be undef in which case $direct_content is interpreted as follows:
+
+=over 4
+
+=item $direct_content isa SCALAR or ref to SCALAR
+
+Uploaded as is.
+
+=item $direct_content isa ARRAY
+
+Elements can be SCALAR, ref to SCALAR, further ARRAYs or CODE, each processed recursively.
+
+=item $direct_content isa CODE
+
+The refenced code is called repeatedly until no data or undef is returned. Automagically manages 1Mb boundries.
+Each call can return either SCALAR, ref to SCALAR, ARRAY (which are processed furder as described under the previous item) or CODE.
+Accepts the case where multiple calls to the subroutine are needed to make up the required 1Mb up to 4GB. For larger files, see multi-part upload.
+The subroutine gets the total raw position from which the current 1Mb block aligned position can be recovered.
+
+Called as &$direct_content( $raw_position );
+Position within each 1Mb chunk can be determined as $1mb_aligned position = $raw_position % ( 1024 * 1024 )
+
+=back
+
+Recursion has a limit of 4294967296 + 1 (the equivalent of 4GiB in bytes + 1, since each call must return at least 1 byte ) to determine a break condition for structures that loop when recursed or exceed the limits of single part uploads.
+Recursion order is L<preorder|http://en.wikipedia.org/wiki/Tree_traversal#Pre-order>.
+
 L<Upload Archive (POST archive)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-archive-post.html>
 
 =cut
 
 sub upload_archive {
-	my ( $self, $vault_name, $archive_path, $description ) = @_;
+	my ( $self, $vault_name, $archive_path, $description, $direct_content ) = @_;
 
 	croak "no vault name given" unless $vault_name;
 	croak "no archive path given" unless $archive_path;
 	croak 'archive path is not a file' unless -f $archive_path;
 
 	$description //= '';
-	my $content = File::Slurp::read_file( $archive_path, err_mode => 'croak', binmode => ':raw' );
+
+	#archive_path is a path unless undefined is treated as a ref to content if $ref_content is true
+	my $content;
+	if ( defined $archive_path ) {
+		$content = File::Slurp::read_file( $archive_path, err_mode => 'croak', binmode => ':raw' );
+		#make a reference
+		$content = \$content;
+		#stream!!! from
+		#http://search.cpan.org/~gaas/libwww-perl-6.04/lib/LWP/UserAgent.pm#REQUEST_METHODS
+		#$ua->request( $request, $content_cb )
+	} else {
+		if ( ! ref( $x ) ) {
+			#scalar content
+			$content = \$direct_content;
+		} elsif ( UNIVERSAL::isa($x,'HASH') ) {
+			# Reference to a hash
+		} elsif ( UNIVERSAL::isa($x,'ARRAY') ) {
+			# Reference to an array
+		} elsif ( UNIVERSAL::isa($x,'SCALAR') || UNIVERSAL::isa($x,'REF') ) {
+			# Reference to a scalar
+		} elsif ( UNIVERSAL::isa($x,'CODE') ) {
+			# Reference to a subroutine
+		}
+			$content = \$direct_content;
+		} elsif (
+
+		}
+
+		$ref_content = \$content;
+		$content = $archive_path_or_content;
+		&& ref( $ref_content ) ) {
+	}
 
 	my $th = Net::Amazon::TreeHash->new();
 	$th->eat_data ( \$content );
@@ -490,7 +548,8 @@ sub multipart_upload_upload_part {
 	} else {
 		#try to read any other content a supported by File::Slurp
 		eval {
-			$content = File::Slurp::read_file( $part, err_mode => 'carp' );
+			# corrected binmode as suggested by Kevin Goess
+			$content = File::Slurp::read_file( $part, err_mode => 'carp', binmode => ':raw' );
 		};
 		croak "\$part interpreted as file (GLOB, IO::Handle/File) but error occured while reading: $@" if ( $@ );
 
@@ -939,15 +998,13 @@ sub _send_request {
 	return $res;
 }
 
+sub _recursively_cache_and_align {
+
+}
+
 =head1 NOT IMPLEMENTED
 
-The following parts of Amazon's API have not yet been implemented. This is mainly because the author hasn't had a use for them yet. If you do implement them, feel free to send a patch.
-
-=over 4
-
-=item * Multipart upload operations
-
-=back
+Nothing as of API Version 2012-06-01.
 
 =head1 SEE ALSO
 
@@ -955,7 +1012,7 @@ See also Victor Efimov's MT::AWS::Glacier, an application for AWS Glacier synchr
 
 =head1 AUTHORS
 
-Maintained and originally written by Tim Nordenfur, C<< <tim at gurka.se> >>. Support for job operations was contributed by Ted Reed at IMVU. Support for many file operations and multipart uploads was contributed by Gonzalo Barco.
+Maintained and originally written by Tim Nordenfur, C<< <tim at gurka.se> >>. Support for job operations was contributed by Ted Reed at IMVU. Support for many file operations and multipart uploads was contributed by Gonzalo Barco. Bugs and suggestions by Victor Efimov and Kevin Goess.
 
 =head1 BUGS
 
