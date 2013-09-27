@@ -338,6 +338,11 @@ sub delete_archive {
 
 =head1 MULTIPART UPLOAD OPERATIONS
 
+Amazon requires this method for files larger than 4GB, and recommends it for 
+files larger than 100MB.
+
+http://docs.aws.amazon.com/amazonglacier/latest/dev/uploading-archive-mpu.html
+
 =head2 SYNOPSIS
 
 	Multipart code snippet
