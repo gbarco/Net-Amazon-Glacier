@@ -275,7 +275,7 @@ sub delete_vault_notifications {
 
 =head2 upload_archive( $vault_name, $archive_path, [ $description ] )
 
-Uploads an archive to the specified vault. $archive_path is the local path to any file smaller than 4GB. For larger files, see multi-part upload. An archive description of up to 1024 printable ASCII characters can be supplied. Returns the Amazon-generated archive ID on success, or false on failure.
+Uploads an archive to the specified vault. $archive_path is the local path to any file smaller than 4GB. For larger files, see MULTIPART UPLOAD OPERATIONS. An archive description of up to 1024 printable ASCII characters can be supplied. Returns the Amazon-generated archive ID on success, or false on failure.
 L<Upload Archive (POST archive)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-archive-post.html>
 
 =cut
@@ -345,8 +345,6 @@ http://docs.aws.amazon.com/amazonglacier/latest/dev/uploading-archive-mpu.html
 
 =head2 SYNOPSIS
 
-	Multipart code snippet
-
 	use Net::Amazon::Glacier;
 
 	my $glacier = Net::Amazon::Glacier->new(
@@ -372,8 +370,10 @@ http://docs.aws.amazon.com/amazonglacier/latest/dev/uploading-archive-mpu.html
 	} while ( ( $read_bytes == $part_size) && $parts_hash->[$part_index++] =~ /^[0-9a-f]{64}$/ );
 	close ( A_FILE );
 
+	my $archive_size = $part_size * ( $part_index ) + $read_bytes;
+
 	# Capture archive id or error code
-	my $archive_id = $glacier->multipart_upload_complete( $vault, $upload_id, $parts_hash, $part_size * ( $part_index - 1) + $read_bytes  );
+	my $archive_id = $glacier->multipart_upload_complete( $vault, $upload_id, $parts_hash, $archive_size  );
 
 	# Check if we have a valid $archive_id
 	unless ( $archive_id =~ /^[a-zA-Z0-9_\-]{10,}$/ ) {
