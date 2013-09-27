@@ -379,7 +379,7 @@ sub delete_archive {
 Amazon requires this method for files larger than 4GB, and recommends it for 
 files larger than 100MB.
 
-http://docs.aws.amazon.com/amazonglacier/latest/dev/uploading-archive-mpu.html
+L<Uploading Large Archives in Parts (Multipart Upload)|http://docs.aws.amazon.com/amazonglacier/latest/dev/uploading-archive-mpu.html>
 
 =head2 SYNOPSIS
 
