@@ -961,13 +961,13 @@ sub _decode_and_handle_response {
 }
 
 sub _send_receive {
-	my $self = shift;
-	my $req = $self->_craft_request( @_ );
+	my ( $self, @request_params) = @_;
+	my $req = $self->_craft_request( @request_params );
 	return $self->_send_request( $req );
 }
 
 sub _craft_request {
-	my ( $self, $method, $url, $header, $content ) = @_;
+	my ( $self, request, $method, $url, $header, $content ) = @_;
 	my $host = 'glacier.'.$self->{region}.'.amazonaws.com';
 	my $total_header = [
 		'x-amz-glacier-version' => '2012-06-01',
@@ -975,7 +975,28 @@ sub _craft_request {
 		'Date' => strftime( '%Y%m%dT%H%M%SZ', gmtime ),
 		$header ? @$header : ()
 	];
-	my $req = HTTP::Request->new( $method => "https://$host$url", $total_header, $content);
+	my $req;
+	if (ref $content eq 'CODE') {
+		# This is streamed content
+		require HTTP::Request::StreamingUpload;
+
+		$req = HTTP::Request::StreamingUpload->new( $method => "https://$host$url", $total_header, $content);
+	} else {
+		$@ = "";
+		my $fd = eval { fileno $content };
+		if ( !$@ && defined $fd ) {
+			# This is a filehandle of some type and should be streamable
+
+			$req = HTTP::Request::StreamingUpload->new( $method => "https://$host$url", $total_header, $content);
+
+
+		} else {
+			# Treat as standard non streamable content
+			$req = HTTP::Request->new( $method => "https://$host$url", $total_header, $content);
+		}
+	}
+
+
 	my $signed_req = $self->{sig}->sign( $req );
 	return $signed_req;
 }
