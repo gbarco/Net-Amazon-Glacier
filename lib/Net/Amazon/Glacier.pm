@@ -796,6 +796,12 @@ Retrieves the output of a job, returns a binary blob. Optional range
 parameter is passed as an HTTP header.
 L<Amazon Glacier Get Job Output (GET output)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-job-output-get.html>.
 
+If you pass a range parameter, you're going to want the tree-hash for your 
+chunk.  That will be returned in an additional return value, so collect it 
+like this:
+
+	($bytes, $tree_hash) = get_job_output(...)
+
 =cut
 
 sub get_job_output {
@@ -813,7 +819,7 @@ sub get_job_output {
 	# updated error severity
 	croak 'get_job_output failed with error ' . $res->status_line unless $res->is_success;
 
-	return $res->decoded_content;
+	return wantarray ? ($res->decoded_content, $res->header('x-amz-sha256-tree-hash')) : $res->decoded_content;
 }
 
 =head2 list_jobs( $vault_name )
