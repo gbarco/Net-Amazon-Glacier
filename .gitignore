@@ -2,9 +2,11 @@
 blib/
 cover_db/
 .last_cover_stats
+Makefile
 Makefile.old
 MANIFEST.bak
 MYMETA.yml
+MYMETA.json
 nytprof.out
 pm_to_blib
 *.tar.gz
