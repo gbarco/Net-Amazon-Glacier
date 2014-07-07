@@ -22,11 +22,11 @@ Net::Amazon::Glacier - An implementation of the Amazon Glacier RESTful API.
 
 =head1 VERSION
 
-Version 0.14
+Version 0.16
 
 =cut
 
-our $VERSION = '0.14';
+our $VERSION = '0.16';
 
 =head1 SYNOPSIS
 
@@ -1012,7 +1012,7 @@ See also Victor Efimov's MT::AWS::Glacier, an application for AWS Glacier synchr
 
 =head1 AUTHORS
 
-Maintained and originally written by Tim Nordenfur, C<< <tim at gurka.se> >>. Support for job operations was contributed by Ted Reed at IMVU. Support for many file operations and multipart uploads was contributed by Gonzalo Barco. Bugs and suggestions by Victor Efimov and Kevin Goess.
+Maintained and originally written by Tim Nordenfur, C<< <tim at gurka.se> >>. Support for job operations was contributed by Ted Reed at IMVU. Support for many file operations and multipart uploads was contributed by Gonzalo Barco. Bugs, suggestions and fixes contributed by Victor Efimov and Kevin Goess.
 
 =head1 BUGS
 
