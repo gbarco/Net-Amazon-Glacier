@@ -564,21 +564,21 @@ sub multipart_upload_upload_part {
 		$content = $part;
 		croak "no data supplied" unless length $$content;
 	} else {
-		#try to read any other content a supported by File::Slurp
+		#try to read any other content as supported by File::Slurp
 		eval {
 			$content = File::Slurp::read_file( $part, err_mode => 'carp' );
 		};
 		croak "\$part interpreted as file (GLOB, IO::Handle/File) but error occured while reading: $@" if ( $@ );
 
-		$content = \$content;
-		croak "no data read from file" unless length $$content;
+		croak "no data read from file" unless length $content;
 	}
 
-	my $upload_part_size = length $$content;
+	my $upload_part_size = length $content;
 
 	# compute part hash
 	my $th = Net::Amazon::TreeHash->new();
 
+	# TODO: this should be a ref...
 	$th->eat_data( $content );
 
 	$th->calc_tree();
