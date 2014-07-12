@@ -460,7 +460,7 @@ Calculates the part size that would allow to uploading files of $archive_size
 
 $archive_size is the maximum expected archive size
 
-Returns the smallest possible part size to upload an archive of 
+Returns the smallest possible part size to upload an archive of
 size $archive_size, 0 when files cannot be uploaded in parts (i.e. >39Tb)
 
 =cut
@@ -587,7 +587,6 @@ sub multipart_upload_upload_part {
 	# compute part hash
 	my $th = Net::Amazon::TreeHash->new();
 
-	# TODO: this should be a ref...
 	$th->eat_data( $content );
 
 	$th->calc_tree();
@@ -1062,7 +1061,7 @@ sub _send_request {
 
 sub _enforce_description_limits {
 	my ( $description ) = @_;
-	# Order is important. We do not want to loose any characters when possible;
+	# order is important. We do not want to loose any characters when possible;
 	my $changes = ( $$description =~ tr/\x20-\x7f//cd );
 	carp 'Description contains invalid characters stick to printable ASCII (x20-x7f). Fixed.' if ( $changes );
 	if ( length $$description > 1024 ) {
