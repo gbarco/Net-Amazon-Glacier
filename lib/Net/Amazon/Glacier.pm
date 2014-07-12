@@ -10,10 +10,10 @@ use Net::Amazon::TreeHash;
 
 use HTTP::Request;
 use LWP::UserAgent;
-use JSON;
-use POSIX qw/strftime/;
+use JSON 2.61;
+use POSIX;
 use Digest::SHA;
-use File::Slurp;
+use File::Slurp 9999.19;
 use Carp;
 
 =head1 NAME
@@ -351,8 +351,7 @@ sub upload_archive_from_ref {
 sub _do_upload {
 	my ( $self, $vault_name, $content_ref, $description ) = @_;
 
-	# $description becomes a reference
-	$description = _enforce_description_limits( \$description );
+	_enforce_description_limits( \$description );
 
 	my $th = Net::Amazon::TreeHash->new();
 	$th->eat_data ( $content_ref );
@@ -361,7 +360,7 @@ sub _do_upload {
 	my $res = $self->_send_receive(
 		POST => "/-/vaults/$vault_name/archives",
 		[
-			'x-amz-archive-description' => $$description,
+			'x-amz-archive-description' => $description,
 			'x-amz-sha256-tree-hash' => $th->get_final_hash(),
 			'x-amz-content-sha256' => Digest::SHA::sha256_hex( $$content_ref ),
 		],
@@ -510,15 +509,14 @@ sub multipart_upload_init {
 	croak "no part size given" unless $part_size;
 	croak "parameter number mismatch" unless @_ == 3 || @_ == 4;
 
-	# $description becomes a reference
-	$description = _enforce_description_limits( \$description );
+	_enforce_description_limits( \$description );
 
 	my $multipart_upload_id;
 
 	my $res = $self->_send_receive(
 		POST => "/-/vaults/$vault_name/multipart-uploads",
 		[
-			'x-amz-archive-description' => $$description,
+			'x-amz-archive-description' => $description,
 			'x-amz-part-size' => $part_size,
 		],
 	);
@@ -804,9 +802,8 @@ sub initiate_archive_retrieval {
 	};
 
 	if ( defined $description ) {
-		# $description becomes a reference
-		$description = _enforce_description_limits( \$description );
-		$content_raw->{Description} = $$description;
+		 _enforce_description_limits( \$description );
+		$content_raw->{Description} = $description;
 	}
 
 	$content_raw->{SNSTopic} = $sns_topic
@@ -852,9 +849,8 @@ sub initiate_inventory_retrieval {
 		if defined($format);
 
 	if ( defined $description ) {
-		# $description becomes a reference
-		$description = _enforce_description_limits( \$description );
-		$content_raw->{Description} = $$description;
+		_enforce_description_limits( \$description );
+		$content_raw->{Description} = $description;
 	}
 
 	$content_raw->{SNSTopic} = $sns_topic
@@ -1033,7 +1029,7 @@ sub _craft_request {
 	my $total_header = [
 		'x-amz-glacier-version' => '2012-06-01',
 		'Host' => $host,
-		'Date' => strftime( '%Y%m%dT%H%M%SZ', gmtime ),
+		'Date' => POSIX::strftime( '%Y%m%dT%H%M%SZ', gmtime ),
 		$header ? @$header : ()
 	];
 	my $req = HTTP::Request->new( $method => "https://$host$url", $total_header, $content);
@@ -1061,7 +1057,8 @@ sub _send_request {
 
 sub _enforce_description_limits {
 	my ( $description ) = @_;
-	# order is important. We do not want to loose any characters when possible;
+	croak 'Description should be a reference so that I can enforce limits on it.' unless ref $description eq 'SCALAR';
+	# order is important. We do not want to loose any characters unless needed.
 	my $changes = ( $$description =~ tr/\x20-\x7f//cd );
 	carp 'Description contains invalid characters stick to printable ASCII (x20-x7f). Fixed.' if ( $changes );
 	if ( length $$description > 1024 ) {
