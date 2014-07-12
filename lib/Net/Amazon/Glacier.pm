@@ -180,7 +180,7 @@ sub describe_vault {
 Lists the vaults. Returns an array with all vaults.
 L<Amazon Glacier List Vaults (GET vaults)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-vaults-get.html>.
 
-A call to list_vaults can result in many calls to the the Amazon API at a rate
+A call to list_vaults can result in many calls to the Amazon API at a rate
 of 1 per 1,000 vaults in existence.
 Calls to List Vaults in the API are L<free|http://aws.amazon.com/glacier/pricing/#storagePricing>.
 
@@ -351,11 +351,8 @@ sub upload_archive_from_ref {
 sub _do_upload {
 	my ( $self, $vault_name, $content_ref, $description ) = @_;
 
-	# Enforce description limits, order is important.
-	$description =~ tr/tr/\x20-\x7f//cd;
-	if ( length $description > 1024 ) {
-		$description = substr( $description, 0, 1024 );
-	}
+	# $description becomes a reference
+	$description = _enforce_description_limits( \$description );
 
 	my $th = Net::Amazon::TreeHash->new();
 	$th->eat_data ( $content_ref );
@@ -364,7 +361,7 @@ sub _do_upload {
 	my $res = $self->_send_receive(
 		POST => "/-/vaults/$vault_name/archives",
 		[
-			'x-amz-archive-description' => $description,
+			'x-amz-archive-description' => $$description,
 			'x-amz-sha256-tree-hash' => $th->get_final_hash(),
 			'x-amz-content-sha256' => Digest::SHA::sha256_hex( $$content_ref ),
 		],
@@ -513,12 +510,15 @@ sub multipart_upload_init {
 	croak "no part size given" unless $part_size;
 	croak "parameter number mismatch" unless @_ == 3 || @_ == 4;
 
+	# $description becomes a reference
+	$description = _enforce_description_limits( \$description );
+
 	my $multipart_upload_id;
 
 	my $res = $self->_send_receive(
 		POST => "/-/vaults/$vault_name/multipart-uploads",
 		[
-			'x-amz-archive-description' => $description,
+			'x-amz-archive-description' => $$description,
 			'x-amz-part-size' => $part_size,
 		],
 	);
@@ -710,7 +710,7 @@ Useful to recover file part tree hashes and complete a broken multipart upload.
 
 L<List Parts (GET uploadID)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-multipart-list-parts.html>
 
-A call to multipart_upload_part_list can result in many calls to the the 
+A call to multipart_upload_part_list can result in many calls to the
 Amazon API at a rate of 1 per 1,000 recently completed job in existence.
 Calls to List Parts in the API are L<free|http://aws.amazon.com/glacier/pricing/#storagePricing>.
 
@@ -746,7 +746,7 @@ Returns an array ref with information on all non completed multipart uploads.
 Useful to recover multipart upload ids.
 L<List Multipart Uploads (GET multipart-uploads)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-multipart-list-uploads.html>
 
-A call to multipart_upload_list can result in many calls to the the Amazon API 
+A call to multipart_upload_list can result in many calls to the Amazon API
 at a rate of 1 per 1,000 recently completed job in existence.
 Calls to List Multipart Uploads in the API are L<free|http://aws.amazon.com/glacier/pricing/#storagePricing>.
 
@@ -781,9 +781,11 @@ sub multipart_upload_list_uploads {
 $description, $sns_topic ] )
 
 Initiates an archive retrieval job. $archive_id is an ID previously
-retrieved from Amazon Glacier. 
+retrieved from Amazon Glacier.
 
-A job description of up to 1,024 printable ASCII characters may be supplied. 
+A job description of up to 1,024 printable ASCII characters may be supplied.
+Net::Amazon::Glacier does it's best to enforce this restriction. When unsure
+send the string and look for Carp.
 
 An SNS Topic to send notifications to upon job completion may also be supplied.
 
@@ -802,8 +804,11 @@ sub initiate_archive_retrieval {
 		ArchiveId => $archive_id,
 	};
 
-	$content_raw->{Description} = $description
-		if defined($description);
+	if defined( $description ) {
+		# $description becomes a reference
+		$description = _enforce_description_limits( \$description );
+		$content_raw->{Description} = $$description;
+	}
 
 	$content_raw->{SNSTopic} = $sns_topic
 		if defined($sns_topic);
@@ -824,7 +829,9 @@ $sns_topic ] )
 
 Initiates an inventory retrieval job. $format is either CSV or JSON.
 
-A job description of up to 1,024 printable ASCII characters may be supplied. 
+A job description of up to 1,024 printable ASCII characters may be supplied.
+Net::Amazon::Glacier does it's best to enforce this restriction. When unsure
+send the string and look for Carp.
 
 An SNS Topic to send notifications to upon job completion may also be supplied.
 
@@ -845,8 +852,11 @@ sub initiate_inventory_retrieval {
 	$content_raw->{Format} = $format
 		if defined($format);
 
-	$content_raw->{Description} = $description
-		if defined($description);
+	if defined($description) {
+		# $description becomes a reference
+		$description = _enforce_description_limits( \$description );
+		$content_raw->{Description} = $$description;
+	}
 
 	$content_raw->{SNSTopic} = $sns_topic
 		if defined($sns_topic);
@@ -899,8 +909,8 @@ Retrieves the output of a job, returns a binary blob. Optional range
 parameter is passed as an HTTP header.
 L<Amazon Glacier Get Job Output (GET output)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-job-output-get.html>.
 
-If you pass a range parameter, you're going to want the tree-hash for your 
-chunk.  That will be returned in an additional return value, so collect it 
+If you pass a range parameter, you're going to want the tree-hash for your
+chunk.  That will be returned in an additional return value, so collect it
 like this:
 
 	($bytes, $tree_hash) = get_job_output(...)
@@ -927,12 +937,12 @@ sub get_job_output {
 
 =head2 list_jobs( $vault_name )
 
-Return an array with information about all recently completed jobs for the 
+Return an array with information about all recently completed jobs for the
 specified vault.
 L<Amazon Glacier List Jobs (GET jobs)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-jobs-get.html>.
 
-A call to list_jobs can result in many calls to the the Amazon API at a rate 
-of 1 per 1,000 recently completed job in existence.
+A call to list_jobs can result in many calls to the Amazon API at a rate of
+1 per 1,000 recently completed job in existence.
 Calls to List Jobs in the API are L<free|http://aws.amazon.com/glacier/pricing/#storagePricing>.
 
 =cut
@@ -1050,25 +1060,36 @@ sub _send_request {
 	return $res;
 }
 
+sub _enforce_description_limits {
+	my ( $description ) = @_;
+	# Order is important. We do not want to loose any characters when possible;
+	my $changes = ( $$description =~ tr/\x20-\x7f//cd );
+	carp 'Description contains invalid characters stick to printable ASCII (x20-x7f). Fixed.' if ( $changes );
+	if ( length $$description > 1024 ) {
+		$$description = substr( $$description, 0, 1024 );
+		carp 'Description should not be longer than 1024 characters. Fixed.';
+	}
+
+	return $description;
+}
 
 =head1 SEE ALSO
 
-See also Victor Efimov's MT::AWS::Glacier, an application for AWS Glacier 
+See also Victor Efimov's MT::AWS::Glacier, an application for AWS Glacier
 synchronization. It is available at L<https://github.com/vsespb/mt-aws-glacier>.
 
 =head1 AUTHORS
 
-Maintained and originally written by Tim Nordenfur, C<< <tim at gurka.se> >>. 
-Support for job operations was contributed by Ted Reed at IMVU. Support for many 
+Maintained and originally written by Tim Nordenfur, C<< <tim at gurka.se> >>.
+Support for job operations was contributed by Ted Reed at IMVU. Support for many
 file operations and multipart uploads was contributed by Gonzalo Barco.
 
 =head1 BUGS
 
-Please report any bugs or feature requests to C<bug-net-amazon-glacier at rt.cpan.org>, 
-or through the web interface at L<http://rt.cpan.org/NoAuth/ReportBug.html?Queue=Net-Amazon-Glacier>.  
-I will be notified, and then you'll automatically be notified of progress on 
+Please report any bugs or feature requests to C<bug-net-amazon-glacier at rt.cpan.org>,
+or through the web interface at L<http://rt.cpan.org/NoAuth/ReportBug.html?Queue=Net-Amazon-Glacier>.
+I will be notified, and then you'll automatically be notified of progress on
 your bug as I make changes.
-
 
 =head1 SUPPORT
 
@@ -1108,7 +1129,6 @@ under the terms of either: the GNU General Public License as published
 by the Free Software Foundation; or the Artistic License.
 
 See http://dev.perl.org/licenses/ for more information.
-
 
 =cut
 
