@@ -351,6 +351,12 @@ sub upload_archive_from_ref {
 sub _do_upload {
 	my ( $self, $vault_name, $content_ref, $description ) = @_;
 
+	# Enforce description limits, order is important.
+	$description =~ tr/tr/\x20-\x7f//cd;
+	if ( length $description > 1024 ) {
+		$description = substr( $description, 0, 1024 );
+	}
+
 	my $th = Net::Amazon::TreeHash->new();
 	$th->eat_data ( $content_ref );
 	$th->calc_tree;
