@@ -804,7 +804,7 @@ sub initiate_archive_retrieval {
 		ArchiveId => $archive_id,
 	};
 
-	if defined( $description ) {
+	if ( defined $description ) {
 		# $description becomes a reference
 		$description = _enforce_description_limits( \$description );
 		$content_raw->{Description} = $$description;
@@ -852,7 +852,7 @@ sub initiate_inventory_retrieval {
 	$content_raw->{Format} = $format
 		if defined($format);
 
-	if defined($description) {
+	if ( defined $description ) {
 		# $description becomes a reference
 		$description = _enforce_description_limits( \$description );
 		$content_raw->{Description} = $$description;
