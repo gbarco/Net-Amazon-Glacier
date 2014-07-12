@@ -22,16 +22,16 @@ Net::Amazon::Glacier - An implementation of the Amazon Glacier RESTful API.
 
 =head1 VERSION
 
-Version 0.14
+Version 0.15
 
 =cut
 
-our $VERSION = '0.14';
+our $VERSION = '0.15';
 
 =head1 SYNOPSIS
 
-This module implements the Amazon Glacier RESTful API, version 2012-06-01 
-(current at writing). It can be used to manage Glacier vaults and upload 
+This module implements the Amazon Glacier RESTful API, version 2012-06-01
+(current at writing). It can be used to manage Glacier vaults and upload
 archives to them. Amazon Glacier is Amazon's long-term storage service.
 
 Perhaps a little code snippet:
@@ -81,8 +81,8 @@ Perhaps a little code snippet:
 
 	}
 
-The functions are intended to closely reflect Amazon's Glacier API. Please see 
-Amazon's API reference for documentation of the functions: 
+The functions are intended to closely reflect Amazon's Glacier API. Please see
+Amazon's API reference for documentation of the functions:
 L<http://docs.amazonwebservices.com/amazonglacier/latest/dev/amazon-glacier-api.html>.
 
 =head1 CONSTRUCTOR
@@ -123,7 +123,7 @@ sub create_vault {
 	my $res = $self->_send_receive( PUT => "/-/vaults/$vault_name" );
 
 	# updated error severity
-	croak 'describe_vault failed with error ' . $res->status_line 
+	croak 'describe_vault failed with error ' . $res->status_line
 		unless $res->is_success;
 
 	return 1;
@@ -144,7 +144,7 @@ sub delete_vault {
 
 	my $res = $self->_send_receive( DELETE => "/-/vaults/$vault_name" );
 	# updated error severity
-	croak 'describe_vault failed with error ' . $res->status_line 
+	croak 'describe_vault failed with error ' . $res->status_line
 		unless $res->is_success;
 
 	return 1;
@@ -152,10 +152,10 @@ sub delete_vault {
 
 =head2 describe_vault( $vault_name )
 
-Fetches information about the specified vault. 
+Fetches information about the specified vault.
 
-Returns a hash reference with 
-the keys described by L<http://docs.amazonwebservices.com/amazonglacier/latest/dev/api-vault-get.html>. 
+Returns a hash reference with
+the keys described by L<http://docs.amazonwebservices.com/amazonglacier/latest/dev/api-vault-get.html>.
 
 Croaks on failure.
 
@@ -180,7 +180,7 @@ sub describe_vault {
 Lists the vaults. Returns an array with all vaults.
 L<Amazon Glacier List Vaults (GET vaults)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-vaults-get.html>.
 
-A call to list_vaults can result in many calls to the the Amazon API at a rate 
+A call to list_vaults can result in many calls to the the Amazon API at a rate
 of 1 per 1,000 vaults in existence.
 Calls to List Vaults in the API are L<free|http://aws.amazon.com/glacier/pricing/#storagePricing>.
 
@@ -211,10 +211,10 @@ sub list_vaults {
 
 Sets vault notifications for a given vault.
 
-An SNS Topic to send notifications to must be provided. The SNS Topic must 
+An SNS Topic to send notifications to must be provided. The SNS Topic must
 grant permission to the vault to be allowed to publish notifications to the topic.
 
-An array ref to a list of events must be provided. Valid events are 
+An array ref to a list of events must be provided. Valid events are
 ArchiveRetrievalCompleted and InventoryRetrievalCompleted
 
 Return true on success, croaks on failure.
@@ -271,7 +271,7 @@ sub get_vault_notifications {
 		PUT => "/-/vaults/$vault_name/notification-configuration",
 	);
 	# updated error severity
-	croak 'get_vault_notifications failed with error ' . $res->status_line 
+	croak 'get_vault_notifications failed with error ' . $res->status_line
 		unless $res->is_success;
 
 	return $self->_decode_and_handle_response( $res );
@@ -296,7 +296,7 @@ sub delete_vault_notifications {
 		DELETE => "/-/vaults/$vault_name/notification-configuration",
 	);
 	# updated error severity
-	croak 'delete_vault_notifications failed with error ' . $res->status_line 
+	croak 'delete_vault_notifications failed with error ' . $res->status_line
 		unless $res->is_success;
 
 	return 1;
@@ -306,8 +306,8 @@ sub delete_vault_notifications {
 
 =head2 upload_archive( $vault_name, $archive_path, [ $description ] )
 
-Uploads an archive to the specified vault. $archive_path is the local path to 
-any file smaller than 4GB. For larger files, see MULTIPART UPLOAD OPERATIONS. 
+Uploads an archive to the specified vault. $archive_path is the local path to
+any file smaller than 4GB. For larger files, see MULTIPART UPLOAD OPERATIONS.
 
 An archive description of up to 1024 printable ASCII characters can be supplied.
 
@@ -325,14 +325,17 @@ sub upload_archive {
 	croak 'archive path is not a file' unless -f $archive_path;
 
 	$description //= '';
-	my $content = File::Slurp::read_file( $archive_path, err_mode => 'croak', binmode => ':raw' );
+	my $content = File::Slurp::read_file( $archive_path, err_mode => 'croak', binmode => ':raw', scalar_ref => 1 );
 
-	return $self->_do_upload($vault_name, \$content, $description);
+	return $self->_do_upload($vault_name, $content, $description);
 }
 
 =head2 upload_data_ref( $vault_name, $ref, [ $description ] )
 
-Like upload_archive, but takes a reference to your data instead of the path to a file.. For data greater than 4GB, see multi-part upload. An archive description of up to 1024 printable ASCII characters can be supplied. Returns the Amazon-generated archive ID on success, or false on failure.
+Like upload_archive, but takes a reference to your data instead of the path to
+a file. For data greater than 4GB, see multi-part upload. An archive
+description of up to 1024 printable ASCII characters can be supplied. Returns
+the Amazon-generated archive ID on success, or false on failure.
 
 =cut
 
@@ -566,14 +569,14 @@ sub multipart_upload_upload_part {
 	} else {
 		#try to read any other content as supported by File::Slurp
 		eval {
-			$content = File::Slurp::read_file( $part, err_mode => 'carp' );
+			$content = File::Slurp::read_file( $part, bin_mode => ':raw', err_mode => 'carp', scalar_ref => 1 );
 		};
 		croak "\$part interpreted as file (GLOB, IO::Handle/File) but error occured while reading: $@" if ( $@ );
 
-		croak "no data read from file" unless length $content;
+		croak "no data read from file" unless length $$content;
 	}
 
-	my $upload_part_size = length $content;
+	my $upload_part_size = length $$content;
 
 	# compute part hash
 	my $th = Net::Amazon::TreeHash->new();
