@@ -346,49 +346,60 @@ L<Upload Archive (POST archive)|http://docs.aws.amazon.com/amazonglacier/latest/
 =cut
 
 sub upload_archive {
-	my ( $self, $vault_name, $archive_path, $description, $direct_content ) = @_;
+	my ( $self, $vault_name, $archive_path_or_content, $description ) = @_;
 
 	croak "no vault name given" unless $vault_name;
-	croak "no archive path given" unless $archive_path;
-	croak 'archive path is not a file' unless -f $archive_path;
 
 	$description //= '';
+	
+	my ( $response, $ref_type );
 
-	#archive_path is a path unless undefined is treated as a ref to content if $ref_content is true
-	my $content;
-	if ( defined $archive_path ) {
-		$content = File::Slurp::read_file( $archive_path, err_mode => 'croak', binmode => ':raw' );
-		#make a reference
-		$content = \$content;
-		#stream!!! from
-		#http://search.cpan.org/~gaas/libwww-perl-6.04/lib/LWP/UserAgent.pm#REQUEST_METHODS
-		#$ua->request( $request, $content_cb )
+	# determine if it looks IOish	
+	$@ = "";
+	my $fd = eval { fileno $archive_path_or_content };
+	if ( !$@ && defined $fd ) {
+		$ref_type = 'IO';
 	} else {
-		if ( ! ref( $x ) ) {
-			#scalar content
-			$content = \$direct_content;
-		} elsif ( UNIVERSAL::isa($x,'HASH') ) {
-			# Reference to a hash
-		} elsif ( UNIVERSAL::isa($x,'ARRAY') ) {
-			# Reference to an array
-		} elsif ( UNIVERSAL::isa($x,'SCALAR') || UNIVERSAL::isa($x,'REF') ) {
-			# Reference to a scalar
-		} elsif ( UNIVERSAL::isa($x,'CODE') ) {
-			# Reference to a subroutine
-		}
-			$content = \$direct_content;
-		} elsif (
-
-		}
-
-		$ref_content = \$content;
-		$content = $archive_path_or_content;
-		&& ref( $ref_content ) ) {
+		$ref_type = ref( $archive_path_or_content );
 	}
-
-	my $content = File::Slurp::read_file( $archive_path, err_mode => 'croak', binmode => ':raw', scalar_ref => 1 );
-
-	return $self->_do_upload($vault_name, $content, $description);
+	
+	if ( $ref_type ) {
+		if ( $ref_type eq 'SCALAR' || $ref_type eq 'CODE' || $ref_type eq 'IO' ) {
+			# _do_upload knows how to handle scalar refs
+			# _do_upload knows how to handle code refs
+			# _do_upload knows how to handle IO filehandles refs
+			$response = $self->_do_upload($vault_name, $archive_path_or_content, $description);
+		} elsif ( $ref_type eq 'ARRAY' || $ref_type eq 'HASH' || $ref_type eq 'REF' || $ref_type eq 'VSTRING' ) {
+			my $deep_unfold = sub {
+				require Data::Walk;
+				walk { wanted =>
+					sub {
+						croak 'recursive structure detected, please unfold' if ( defined $Data::Walk::seen && $Data::Walk::seen );
+						print $_ unless ref $_;
+					}
+				}, $archive_path_or_content;
+			};
+			# _do_upload knows how to handle code refs
+			$response = $self->_do_upload($vault_name, $deep_unfold, $description);
+		} else {
+			# ($ref_type eq 'LVALUE' || $ref_type eq  'FORMAT' || $ref_type eq 'RegExp' || $ref_type eq 'GLOB' )
+			croak 'Don\'t push it! This should be something one would store in a file!';
+		}
+	} else {
+		# $archive_path_or_content is the path to a file
+		croak 'archive path is not a file' unless -f $archive_path_or_content;
+		
+		my $content = IO::File->new();
+		#_craft_request should be able to stream this
+		$content->open( $archive_path_or_content, "r");
+		
+		$response = $self->_do_upload($vault_name, $content, $description);
+		
+	
+		$content->close();
+	}
+	
+	return $response;
 }
 
 =head2 upload_data_ref( $vault_name, $ref, [ $description ] )
@@ -429,15 +440,16 @@ sub _do_upload {
 	);
 	croak 'upload_archive failed with error ' . $res->status_line unless $res->is_success;
 
-	my $rec_archive_id;
-	unless ( $res->header('location') =~ m{^/[^/]+/vaults/[^/]+/archives/(.*)$} ) {
+	my $archive_id;
+	if ( $res->header('location') =~ m{^/[^/]+/vaults/[^/]+/archives/(.*)$} ) {
+		carp 'returned archive id does not look like an archive id' unless _looks_like_archive_id( $archive_id );
+		$archive_id = $1;
+	} else {
 		# update severity of error. This method must return an archive id
 		croak 'request succeeded, but reported archive location does not match regex: ' . $res->header('location');
-	} else {
-		$rec_archive_id = $1;
 	}
 
-	return $rec_archive_id;
+	return $archive_id;
 }
 
 =head2 delete_archive( $vault_name, $archive_id )
@@ -1099,7 +1111,7 @@ sub _craft_request {
 		$header ? @$header : ()
 	];
 	my $req;
-	if (ref $content eq 'CODE') {
+	if (ref $content eq 'CODE' || ref $content ) {
 		# This is streamed content
 		require HTTP::Request::StreamingUpload;
 
@@ -1111,14 +1123,11 @@ sub _craft_request {
 			# This is a filehandle of some type and should be streamable
 
 			$req = HTTP::Request::StreamingUpload->new( $method => "https://$host$url", $total_header, $content);
-
-
 		} else {
 			# Treat as standard non streamable content
 			$req = HTTP::Request->new( $method => "https://$host$url", $total_header, $content);
 		}
 	}
-
 
 	my $signed_req = $self->{sig}->sign( $req );
 	return $signed_req;
@@ -1140,10 +1149,6 @@ sub _send_request {
 		}
 	}
 	return $res;
-}
-
-sub _recursively_cache_and_align {
-
 }
 
 sub _enforce_description_limits {
