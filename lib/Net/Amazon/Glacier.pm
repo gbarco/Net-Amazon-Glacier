@@ -3,17 +3,16 @@ package Net::Amazon::Glacier;
 use 5.10.0;
 use strict;
 use warnings;
-use feature 'say';
 
 use Net::Amazon::Signature::V4;
 use Net::Amazon::TreeHash;
 
 use HTTP::Request;
 use LWP::UserAgent;
-use JSON;
-use POSIX qw/strftime/;
+use JSON 2.61;
+use POSIX;
 use Digest::SHA;
-use File::Slurp;
+use File::Slurp 9999.19;
 use Carp;
 
 =head1 NAME
@@ -21,6 +20,7 @@ use Carp;
 Net::Amazon::Glacier - An implementation of the Amazon Glacier RESTful API.
 
 =head1 VERSION
+
 
 Version 0.16
 
@@ -30,9 +30,11 @@ our $VERSION = '0.16';
 
 =head1 SYNOPSIS
 
-This module implements the Amazon Glacier RESTful API, version 2012-06-01 (current at writing). It can be used to manage Glacier vaults and upload archives to them. Amazon Glacier is Amazon's long-term storage service.
+This module implements the Amazon Glacier RESTful API, version 2012-06-01
+(current at writing). It can be used to manage Glacier vaults and upload
+archives to them. Amazon Glacier is Amazon's long-term storage service.
 
-Perhaps a little code snippet.
+Perhaps a little code snippet:
 
 	use Net::Amazon::Glacier;
 
@@ -79,7 +81,9 @@ Perhaps a little code snippet.
 
 	}
 
-The functions are intended to closely reflect Amazon's Glacier API. Please see Amazon's API reference for documentation of the functions: L<http://docs.amazonwebservices.com/amazonglacier/latest/dev/amazon-glacier-api.html>.
+The functions are intended to closely reflect Amazon's Glacier API. Please see
+Amazon's API reference for documentation of the functions:
+L<http://docs.amazonwebservices.com/amazonglacier/latest/dev/amazon-glacier-api.html>.
 
 =head1 CONSTRUCTOR
 
@@ -107,7 +111,7 @@ sub new {
 
 =head2 create_vault( $vault_name )
 
-Creates a vault with the specified name. Returns true on success, false on failure.
+Creates a vault with the specified name. Returns true on success, croaks on failure.
 L<Create Vault (PUT vault)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-vault-put.html>
 =cut
 
@@ -117,15 +121,19 @@ sub create_vault {
 	croak "no vault name given" unless $vault_name;
 
 	my $res = $self->_send_receive( PUT => "/-/vaults/$vault_name" );
-	# updated error severity
-	croak 'describe_vault failed with error ' . $res->status_line unless $res->is_success;
 
-	return $res->is_success;
+	# updated error severity
+	croak 'describe_vault failed with error ' . $res->status_line
+		unless $res->is_success;
+
+	return 1;
+
 }
 
 =head2 delete_vault( $vault_name )
 
-Deletes the specified vault. Returns true on success, false on failure.
+Deletes the specified vault. Returns true on success, croaks on failure.
+
 L<Delete Vault (DELETE vault)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-vault-delete.html>
 =cut
 
@@ -136,14 +144,21 @@ sub delete_vault {
 
 	my $res = $self->_send_receive( DELETE => "/-/vaults/$vault_name" );
 	# updated error severity
-	croak 'describe_vault failed with error ' . $res->status_line unless $res->is_success;
+	croak 'describe_vault failed with error ' . $res->status_line
+		unless $res->is_success;
 
-	return $res->is_success;
+	return 1;
 }
 
 =head2 describe_vault( $vault_name )
 
-Fetches information about the specified vault. Returns a hash reference with the keys described by L<http://docs.amazonwebservices.com/amazonglacier/latest/dev/api-vault-get.html>. Returns false on failure.
+Fetches information about the specified vault.
+
+Returns a hash reference with
+the keys described by L<http://docs.amazonwebservices.com/amazonglacier/latest/dev/api-vault-get.html>.
+
+Croaks on failure.
+
 L<Describe Vault (GET vault)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-vault-get.html>
 
 =cut
@@ -165,8 +180,11 @@ sub describe_vault {
 Lists the vaults. Returns an array with all vaults.
 L<Amazon Glacier List Vaults (GET vaults)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-vaults-get.html>.
 
-A call to list_vaults can result in many calls to the the Amazon API at a rate of 1 per 1,000 vaults in existence.
+A call to list_vaults can result in many calls to the Amazon API at a rate
+of 1 per 1,000 vaults in existence.
 Calls to List Vaults in the API are L<free|http://aws.amazon.com/glacier/pricing/#storagePricing>.
+
+Croaks on failure.
 
 =cut
 
@@ -192,10 +210,15 @@ sub list_vaults {
 =head2 set_vault_notifications( $vault_name, $sns_topic, $events )
 
 Sets vault notifications for a given vault.
-An SNS Topic to send notifications to must be provided. The SNS Topic must grant permission to the vault to be allowed to publish notifications to the topic.
-An array ref to a list of events must be provided. Valid events are ArchiveRetrievalCompleted and InventoryRetrievalCompleted
-upon job completion may also be supplied.
-Return true on success, false otherwise.
+
+An SNS Topic to send notifications to must be provided. The SNS Topic must
+grant permission to the vault to be allowed to publish notifications to the topic.
+
+An array ref to a list of events must be provided. Valid events are
+ArchiveRetrievalCompleted and InventoryRetrievalCompleted
+
+Return true on success, croaks on failure.
+
 L<Set Vault Notification Configuration (PUT notification-configuration)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-vault-notifications-put.html>.
 
 =cut
@@ -222,15 +245,19 @@ sub set_vault_notifications {
 		encode_json($content_raw),
 	);
 	# updated error severity
-	croak 'get_vault_notifications failed with error ' . $res->status_line unless $res->is_success;
+	croak 'get_vault_notifications failed with error ' . $res->status_line 
+		unless $res->is_success;
 
-	return $res->is_success;
+	return 1;
 }
 
 =head2 get_vault_notifications( $vault_name )
 
 Gets vault notifications status for a given vault.
-Return false on failure or a hash with an 'SNSTopic' and and array of 'Events' on success.
+
+Returns a hash with an 'SNSTopic' and and array of 'Events' on success, croaks
+on failure.
+
 L<Get Vault Notifications (GET notification-configuration)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-vault-notifications-get.html>.
 
 =cut
@@ -244,7 +271,8 @@ sub get_vault_notifications {
 		PUT => "/-/vaults/$vault_name/notification-configuration",
 	);
 	# updated error severity
-	croak 'get_vault_notifications failed with error ' . $res->status_line unless $res->is_success;
+	croak 'get_vault_notifications failed with error ' . $res->status_line
+		unless $res->is_success;
 
 	return $self->_decode_and_handle_response( $res );
 }
@@ -252,7 +280,9 @@ sub get_vault_notifications {
 =head2 delete_vault_notifications( $vault_name )
 
 Deletes vault notifications for a given vault.
-Return true on success, false otherwise.
+
+Return true on success, croaks on failure.
+
 L<Delete Vault Notifications (DELETE notification-configuration)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-vault-notifications-delete.html>.
 
 =cut
@@ -266,9 +296,10 @@ sub delete_vault_notifications {
 		DELETE => "/-/vaults/$vault_name/notification-configuration",
 	);
 	# updated error severity
-	croak 'delete_vault_notifications failed with error ' . $res->status_line unless $res->is_success;
+	croak 'delete_vault_notifications failed with error ' . $res->status_line
+		unless $res->is_success;
 
-	return $res->is_success;
+	return 1;
 }
 
 =head1 ARCHIVE OPERATIONS
@@ -302,6 +333,13 @@ Position within each 1Mb chunk can be determined as $1mb_aligned position = $raw
 
 Processing has a limit of 4294967296 + 1 calls (the equivalent of 4GiB in bytes + 1, since each call must return at least 1 byte ) to determine a break condition for structures that loop when recursed or exceed the limits of single part uploads.
 Processing order is L<preorder|http://en.wikipedia.org/wiki/Tree_traversal#Pre-order>.
+
+Uploads an archive to the specified vault. $archive_path is the local path to
+any file smaller than 4GB. For larger files, see MULTIPART UPLOAD OPERATIONS.
+
+An archive description of up to 1024 printable ASCII characters can be supplied.
+
+Returns the Amazon-generated archive ID on success, or false on failure.
 
 L<Upload Archive (POST archive)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-archive-post.html>
 
@@ -348,8 +386,36 @@ sub upload_archive {
 		&& ref( $ref_content ) ) {
 	}
 
+	my $content = File::Slurp::read_file( $archive_path, err_mode => 'croak', binmode => ':raw', scalar_ref => 1 );
+
+	return $self->_do_upload($vault_name, $content, $description);
+}
+
+=head2 upload_data_ref( $vault_name, $ref, [ $description ] )
+
+Like upload_archive, but takes a reference to your data instead of the path to
+a file. For data greater than 4GB, see multi-part upload. An archive
+description of up to 1024 printable ASCII characters can be supplied. Returns
+the Amazon-generated archive ID on success, or false on failure.
+
+=cut
+
+sub upload_archive_from_ref {
+	my ( $self, $vault_name, $ref, $description ) = @_;
+
+	croak "no vault name given" unless $vault_name;
+	croak "data must be a reference" unless ref $ref;
+
+	return $self->_do_upload($vault_name, $ref, $description);
+}
+
+sub _do_upload {
+	my ( $self, $vault_name, $content_ref, $description ) = @_;
+
+	_enforce_description_limits( \$description );
+
 	my $th = Net::Amazon::TreeHash->new();
-	$th->eat_data ( \$content );
+	$th->eat_data ( $content_ref );
 	$th->calc_tree;
 
 	my $res = $self->_send_receive(
@@ -357,9 +423,9 @@ sub upload_archive {
 		[
 			'x-amz-archive-description' => $description,
 			'x-amz-sha256-tree-hash' => $th->get_final_hash(),
-			'x-amz-content-sha256' => Digest::SHA::sha256_hex( $content ),
+			'x-amz-content-sha256' => Digest::SHA::sha256_hex( $$content_ref ),
 		],
-		$content
+		$$content_ref
 	);
 	croak 'upload_archive failed with error ' . $res->status_line unless $res->is_success;
 
@@ -376,7 +442,8 @@ sub upload_archive {
 
 =head2 delete_archive( $vault_name, $archive_id )
 
-Issues a request to delete a file from Glacier. $archive_id is the ID you received either when you uploaded the file originally or from an inventory.
+Issues a request to delete a file from Glacier. $archive_id is the ID you 
+received either when you uploaded the file originally or from an inventory.
 L<Delete Archive (DELETE archive)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-archive-delete.html>
 
 =cut
@@ -396,9 +463,12 @@ sub delete_archive {
 
 =head1 MULTIPART UPLOAD OPERATIONS
 
-=head2 SYNOPSIS
+Amazon requires this method for files larger than 4GB, and recommends it for 
+files larger than 100MB.
 
-	Multipart code snippet
+L<Uploading Large Archives in Parts (Multipart Upload)|http://docs.aws.amazon.com/amazonglacier/latest/dev/uploading-archive-mpu.html>
+
+=head2 SYNOPSIS
 
 	use Net::Amazon::Glacier;
 
@@ -425,8 +495,10 @@ sub delete_archive {
 	} while ( ( $read_bytes == $part_size) && $parts_hash->[$part_index++] =~ /^[0-9a-f]{64}$/ );
 	close ( A_FILE );
 
+	my $archive_size = $part_size * ( $part_index ) + $read_bytes;
+
 	# Capture archive id or error code
-	my $archive_id = $glacier->multipart_upload_complete( $vault, $upload_id, $parts_hash, $part_size * ( $part_index - 1) + $read_bytes  );
+	my $archive_id = $glacier->multipart_upload_complete( $vault, $upload_id, $parts_hash, $archive_size  );
 
 	# Check if we have a valid $archive_id
 	unless ( $archive_id =~ /^[a-zA-Z0-9_\-]{10,}$/ ) {
@@ -444,10 +516,12 @@ sub delete_archive {
 
 =head2 calculate_multipart_upload_partsize ( $archive_size )
 
-Calculates the part size that would allow to upload a files of $archive_size
+Calculates the part size that would allow to uploading files of $archive_size
+
 $archive_size is the maximum expected archive size
-Returns the smallest possible part size to upload an archive of size
-$archive_size, 0 when files cannot be uploaded in parts (i.e. >39Tb)
+
+Returns the smallest possible part size to upload an archive of
+size $archive_size, 0 when files cannot be uploaded in parts (i.e. >39Tb)
 
 =cut
 
@@ -477,11 +551,14 @@ sub calculate_multipart_upload_partsize {
 Initiates a multipart upload.
 $part_size should be carefully calculated to avoid dead ends as documented in
 the API. Use calculate_multipart_upload_partsize.
+
 Returns a multipart upload id that should be used while adding parts to the
 online archive that is being constructed.
+
 Multipart upload ids are valid until multipart_upload_abort is called or 24
 hours after last archive related activity is registered. After that period id
 validity should not be expected.
+
 L<Initiate Multipart Upload (POST multipart-uploads)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-multipart-initiate-upload.html>.
 
 =cut
@@ -492,6 +569,8 @@ sub multipart_upload_init {
 	croak "no vault name given" unless $vault_name;
 	croak "no part size given" unless $part_size;
 	croak "parameter number mismatch" unless @_ == 3 || @_ == 4;
+
+	_enforce_description_limits( \$description );
 
 	my $multipart_upload_id;
 
@@ -517,16 +596,23 @@ sub multipart_upload_init {
 =head2 multipart_upload_upload_part( $vault_name, $multipart_upload_id, $part_size, $part_index, $part )
 
 Uploads a certain range of a multipart upload.
+
 $part_size must be the same supplied to multipart_upload_init for a given
 multipart upload.
+
 $part_index should be the index of a file of N $part_size chunks whose data is
 passed in $part.
+
 $part can must be a reference to a string or be a filehandle and must be exactly
 the part_size supplied to multipart_upload_initiate unless it is the last past
 which can be any non-zero size.
-Absolute maximum online archive size is 4GB*10000 or slightly over 39Tb. L<Uploading Large Archives in Parts (Multipart Upload) Quick Facts|docs.aws.amazon.com/amazonglacier/latest/dev/uploading-archive-mpu.html#qfacts>
+
+Absolute maximum online archive size is 4GB*10000 or slightly over 39Tb. 
+L<Uploading Large Archives in Parts (Multipart Upload) Quick Facts|docs.aws.amazon.com/amazonglacier/latest/dev/uploading-archive-mpu.html#qfacts>
+
 Returns uploaded part tree-hash (which should be store in an array ref to be
 passed to multipart_upload_complete
+
 L<Upload Part (PUT uploadID)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-upload-part.html>.
 
 =cut
@@ -546,14 +632,13 @@ sub multipart_upload_upload_part {
 		$content = $part;
 		croak "no data supplied" unless length $$content;
 	} else {
-		#try to read any other content a supported by File::Slurp
+		#try to read any other content as supported by File::Slurp
 		eval {
 			# corrected binmode as suggested by Kevin Goess
-			$content = File::Slurp::read_file( $part, err_mode => 'carp', binmode => ':raw' );
+			$content = File::Slurp::read_file( $part, bin_mode => ':raw', err_mode => 'carp', scalar_ref => 1 );
 		};
 		croak "\$part interpreted as file (GLOB, IO::Handle/File) but error occured while reading: $@" if ( $@ );
 
-		$content = \$content;
 		croak "no data read from file" unless length $$content;
 	}
 
@@ -593,19 +678,24 @@ sub multipart_upload_upload_part {
 =head2 multipart_upload_complete( $vault_name, $multipart_upload_id, $tree_hash_array_ref, $archive_size )
 
 Signals completion of multipart upload.
+
 $tree_hash_array_ref must be an ordered list (same order as final assembled online
 archive, as opposed to upload order) of partial tree hashes as returned by
 multipart_upload_upload_part
+
 $archive_size is provided at completion to check all parts make up an archive an
 not before hand to allow for archive streaming a.k.a. upload archives of unknown
-size. Behold of dead ends when choosing part size. Use
+size. Beware of dead ends when choosing part size. Use
 calculate_multipart_upload_partsize to select a part size that will work.
+
 Returns an archive id that can be used to request a job to retrieve the archive
 at a later time on success and 0 on failure.
+
 On failure multipart_upload_list_parts could be used to determine the missing
 part or recover the partial tree hashes, complete the missing parts and
 recalculate the correct archive tree hash and call multipart_upload_complete
 with a successful result.
+
 L<Complete Multipart Upload (POST uploadID)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-multipart-complete-upload.html>.
 
 =cut
@@ -645,6 +735,7 @@ sub multipart_upload_complete {
 
 Aborts multipart upload releasing the id and related online resources of
 a partially uploaded archive.
+
 L<Abort Multipart Upload (DELETE uploadID)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-multipart-abort-upload.html>.
 
 =cut
@@ -673,10 +764,13 @@ sub multipart_upload_abort {
 
 Returns an array ref with information on all uploaded parts of the, probably
 partially uploaded, online archive.
+
 Useful to recover file part tree hashes and complete a broken multipart upload.
+
 L<List Parts (GET uploadID)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-multipart-list-parts.html>
 
-A call to multipart_upload_part_list can result in many calls to the the Amazon API at a rate of 1 per 1,000 recently completed job in existence.
+A call to multipart_upload_part_list can result in many calls to the
+Amazon API at a rate of 1 per 1,000 recently completed job in existence.
 Calls to List Parts in the API are L<free|http://aws.amazon.com/glacier/pricing/#storagePricing>.
 
 =cut
@@ -711,7 +805,8 @@ Returns an array ref with information on all non completed multipart uploads.
 Useful to recover multipart upload ids.
 L<List Multipart Uploads (GET multipart-uploads)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-multipart-list-uploads.html>
 
-A call to multipart_upload_list can result in many calls to the the Amazon API at a rate of 1 per 1,000 recently completed job in existence.
+A call to multipart_upload_list can result in many calls to the Amazon API
+at a rate of 1 per 1,000 recently completed job in existence.
 Calls to List Multipart Uploads in the API are L<free|http://aws.amazon.com/glacier/pricing/#storagePricing>.
 
 =cut
@@ -745,9 +840,14 @@ sub multipart_upload_list_uploads {
 $description, $sns_topic ] )
 
 Initiates an archive retrieval job. $archive_id is an ID previously
-retrieved from Amazon Glacier. A job description of up to 1,024 printable
-ASCII characters may be supplied. An SNS Topic to send notifications to
-upon job completion may also be supplied.
+retrieved from Amazon Glacier.
+
+A job description of up to 1,024 printable ASCII characters may be supplied.
+Net::Amazon::Glacier does it's best to enforce this restriction. When unsure
+send the string and look for Carp.
+
+An SNS Topic to send notifications to upon job completion may also be supplied.
+
 L<Initiate a Job (POST jobs)|docs.aws.amazon.com/amazonglacier/latest/dev/api-initiate-job-post.html#api-initiate-job-post-requests-syntax>.
 
 =cut
@@ -763,8 +863,10 @@ sub initiate_archive_retrieval {
 		ArchiveId => $archive_id,
 	};
 
-	$content_raw->{Description} = $description
-		if defined($description);
+	if ( defined $description ) {
+		 _enforce_description_limits( \$description );
+		$content_raw->{Description} = $description;
+	}
 
 	$content_raw->{SNSTopic} = $sns_topic
 		if defined($sns_topic);
@@ -780,12 +882,17 @@ sub initiate_archive_retrieval {
 	return $res->header('x-amz-job-id');
 }
 
-=head2 initiate_inventory_retrieval( $vault_name, [ $format, $description,
+=head2 initiate_inventory_retrieval( $vault_name, $format, [ $description,
 $sns_topic ] )
 
-Initiates an inventory retrieval job. $format is either CSV or JSON (default).
-A job description of up to 1,024 printable ASCII characters may be supplied. An
-SNS Topic to send notifications to upon job completion may also be supplied.
+Initiates an inventory retrieval job. $format is either CSV or JSON.
+
+A job description of up to 1,024 printable ASCII characters may be supplied.
+Net::Amazon::Glacier does it's best to enforce this restriction. When unsure
+send the string and look for Carp.
+
+An SNS Topic to send notifications to upon job completion may also be supplied.
+
 L<Initiate a Job (POST jobs)|docs.aws.amazon.com/amazonglacier/latest/dev/api-initiate-job-post.html#api-initiate-job-post-requests-syntax>.
 
 =cut
@@ -803,8 +910,10 @@ sub initiate_inventory_retrieval {
 	$content_raw->{Format} = $format
 		if defined($format);
 
-	$content_raw->{Description} = $description
-		if defined($description);
+	if ( defined $description ) {
+		_enforce_description_limits( \$description );
+		$content_raw->{Description} = $description;
+	}
 
 	$content_raw->{SNSTopic} = $sns_topic
 		if defined($sns_topic);
@@ -820,12 +929,13 @@ sub initiate_inventory_retrieval {
 	return $res->header('x-amz-job-id');
 }
 
-=head2 initiate_job( ( $vault_name, $archive_id, [
-$description, $sns_topic ] )
+=head2 initiate_job( ( $vault_name, $archive_id, [ $description, $sns_topic ] )
 
 Effectively calls initiate_inventory_retrieval.
+
 Exists for the sole purpose or implementing the Amazon Glacier Developer Guide (API Version 2012-06-01)
 nomenclature.
+
 L<Initiate a Job (POST jobs)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-initiate-job-post.html>.
 
 =cut
@@ -837,6 +947,7 @@ sub initiate_job {
 =head2 describe_job( $vault_name, $job_id )
 
 Retrieves a hashref with information about the requested JobID.
+
 L<Amazon Glacier Describe Job (GET JobID)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-describe-job-get.html>.
 
 =cut
@@ -855,6 +966,12 @@ Retrieves the output of a job, returns a binary blob. Optional range
 parameter is passed as an HTTP header.
 L<Amazon Glacier Get Job Output (GET output)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-job-output-get.html>.
 
+If you pass a range parameter, you're going to want the tree-hash for your
+chunk.  That will be returned in an additional return value, so collect it
+like this:
+
+	($bytes, $tree_hash) = get_job_output(...)
+
 =cut
 
 sub get_job_output {
@@ -872,15 +989,17 @@ sub get_job_output {
 	# updated error severity
 	croak 'get_job_output failed with error ' . $res->status_line unless $res->is_success;
 
-	return $res->decoded_content;
+	return wantarray ? ($res->decoded_content, $res->header('x-amz-sha256-tree-hash')) : $res->decoded_content;
 }
 
 =head2 list_jobs( $vault_name )
 
-Return an array with information about all recently completed jobs for the specified vault.
+Return an array with information about all recently completed jobs for the
+specified vault.
 L<Amazon Glacier List Jobs (GET jobs)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-jobs-get.html>.
 
-A call to list_jobs can result in many calls to the the Amazon API at a rate of 1 per 1,000 recently completed job in existence.
+A call to list_jobs can result in many calls to the Amazon API at a rate of
+1 per 1,000 recently completed job in existence.
 Calls to List Jobs in the API are L<free|http://aws.amazon.com/glacier/pricing/#storagePricing>.
 
 =cut
@@ -972,7 +1091,7 @@ sub _craft_request {
 	my $total_header = [
 		'x-amz-glacier-version' => '2012-06-01',
 		'Host' => $host,
-		'Date' => strftime( '%Y%m%dT%H%M%SZ', gmtime ),
+		'Date' => POSIX::strftime( '%Y%m%dT%H%M%SZ', gmtime ),
 		$header ? @$header : ()
 	];
 	my $req;
@@ -1023,24 +1142,42 @@ sub _recursively_cache_and_align {
 
 }
 
+sub _enforce_description_limits {
+	my ( $description ) = @_;
+	croak 'Description should be a reference so that I can enforce limits on it.' unless ref $description eq 'SCALAR';
+	# order is important. We do not want to loose any characters unless needed.
+	my $changes = ( $$description =~ tr/\x20-\x7f//cd );
+	carp 'Description contains invalid characters stick to printable ASCII (x20-x7f). Fixed.' if ( $changes );
+	if ( length $$description > 1024 ) {
+		$$description = substr( $$description, 0, 1024 );
+		carp 'Description should not be longer than 1024 characters. Fixed.';
+	}
+
+	return $description;
+}
+
 =head1 NOT IMPLEMENTED
 
 Nothing as of API Version 2012-06-01.
 
 =head1 SEE ALSO
 
-See also Victor Efimov's MT::AWS::Glacier, an application for AWS Glacier synchronization. It is available at L<https://github.com/vsespb/mt-aws-glacier>.
+See also Victor Efimov's MT::AWS::Glacier, an application for AWS Glacier
+synchronization. It is available at L<https://github.com/vsespb/mt-aws-glacier>.
 
 =head1 AUTHORS
 
-Maintained and originally written by Tim Nordenfur, C<< <tim at gurka.se> >>. Support for job operations was contributed by Ted Reed at IMVU. Support for many file operations and multipart uploads was contributed by Gonzalo Barco. Bugs, suggestions and fixes contributed by Victor Efimov and Kevin Goess.
+Maintained and originally written by Tim Nordenfur, C<< <tim at gurka.se> >>.
+Support for job operations was contributed by Ted Reed at IMVU. Support for many
+file operations and multipart uploads was contributed by Gonzalo Barco.
+Bugs, suggestions and fixes contributed by Victor Efimov and Kevin Goess.
 
 =head1 BUGS
 
-Please report any bugs or feature requests to C<bug-net-amazon-glacier at rt.cpan.org>, or through
-the web interface at L<http://rt.cpan.org/NoAuth/ReportBug.html?Queue=Net-Amazon-Glacier>.  I will be notified, and then you'll
-automatically be notified of progress on your bug as I make changes.
-
+Please report any bugs or feature requests to C<bug-net-amazon-glacier at rt.cpan.org>,
+or through the web interface at L<http://rt.cpan.org/NoAuth/ReportBug.html?Queue=Net-Amazon-Glacier>.
+I will be notified, and then you'll automatically be notified of progress on
+your bug as I make changes.
 
 =head1 SUPPORT
 
@@ -1080,7 +1217,6 @@ under the terms of either: the GNU General Public License as published
 by the Free Software Foundation; or the Artistic License.
 
 See http://dev.perl.org/licenses/ for more information.
-
 
 =cut
 
