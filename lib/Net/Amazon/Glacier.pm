@@ -402,24 +402,6 @@ sub upload_archive {
 	return $response;
 }
 
-=head2 upload_data_ref( $vault_name, $ref, [ $description ] )
-
-Like upload_archive, but takes a reference to your data instead of the path to
-a file. For data greater than 4GB, see multi-part upload. An archive
-description of up to 1024 printable ASCII characters can be supplied. Returns
-the Amazon-generated archive ID on success, or false on failure.
-
-=cut
-
-sub upload_archive_from_ref {
-	my ( $self, $vault_name, $ref, $description ) = @_;
-
-	croak "no vault name given" unless $vault_name;
-	croak "data must be a reference" unless ref $ref;
-
-	return $self->_do_upload($vault_name, $ref, $description);
-}
-
 sub _do_upload {
 	my ( $self, $vault_name, $content_ref, $description ) = @_;
 
