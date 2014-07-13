@@ -1152,8 +1152,6 @@ sub _enforce_description_limits {
 		$$description = substr( $$description, 0, 1024 );
 		carp 'Description should not be longer than 1024 characters. Fixed.';
 	}
-
-	return $description;
 }
 
 =head1 NOT IMPLEMENTED
