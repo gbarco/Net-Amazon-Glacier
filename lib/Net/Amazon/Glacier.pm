@@ -885,7 +885,7 @@ sub initiate_archive_retrieval {
 =head2 initiate_inventory_retrieval( $vault_name, $format, [ $description,
 $sns_topic ] )
 
-Initiates an inventory retrieval job. $format is either CSV or JSON.
+Initiates an inventory retrieval job. $format is either CSV or JSON. Defaults to JSON.
 
 A job description of up to 1,024 printable ASCII characters may be supplied.
 Net::Amazon::Glacier does it's best to enforce this restriction. When unsure
@@ -901,22 +901,21 @@ sub initiate_inventory_retrieval {
 	my ( $self, $vault_name, $format, $description, $sns_topic ) = @_;
 
 	croak "no vault name given" unless $vault_name;
-	croak "no format given" unless $format;
+	# Actually /^CSV|JSON$/ but since JSON is the only other possible value...
+	$format = 'JSON' unless $format eq 'CSV'; 
 
 	my $content_raw = {
 		Type => 'inventory-retrieval',
 	};
 
-	$content_raw->{Format} = $format
-		if defined($format);
+	$content_raw->{Format} = $format if defined($format);
 
 	if ( defined $description ) {
 		_enforce_description_limits( \$description );
 		$content_raw->{Description} = $description;
 	}
 
-	$content_raw->{SNSTopic} = $sns_topic
-		if defined($sns_topic);
+	$content_raw->{SNSTopic} = $sns_topic if defined($sns_topic);
 
 	my $res = $self->_send_receive(
 		POST => "/-/vaults/$vault_name/jobs",
@@ -942,6 +941,29 @@ L<Initiate a Job (POST jobs)|http://docs.aws.amazon.com/amazonglacier/latest/dev
 
 sub initiate_job {
 	initiate_inventory_retrieval( @_ );
+}
+
+sub initiate_job_any {
+	my ($self, $vault_name, $type, $format_or_archive_id, $description, $sns_topic ) = @_;
+	
+	my ( $format, $archive_id );
+	
+	croak "no vault name given" unless $vault_name;
+	croak "bad type, should be 'inventory-retrieval' or 'archive-retrieval'" unless $type /^inventory-retrieval|archive-retrieval$/;
+	
+	if ( $type eq 'inventory-retrieval' ) {
+		# Actually /^CSV|JSON$/ but since JSON is the only other possible value...
+		$format = 'JSON' unless $format_or_archive_id eq 'CSV'; 
+	} elsif ( $type eq 'archive-retrieval' ) {
+		$archive_id = $format_or_archive_id;
+		carp 
+	}
+	
+	# Actually /^CSV|JSON$/ but since JSON is the only other possible value...
+	
+	
+	
+	
 }
 
 =head2 describe_job( $vault_name, $job_id )
@@ -1152,6 +1174,12 @@ sub _enforce_description_limits {
 		$$description = substr( $$description, 0, 1024 );
 		carp 'Description should not be longer than 1024 characters. Fixed.';
 	}
+}
+
+sub _looks_like_archive_id {
+	my ( $supposed_archive_id ) = @_;
+	
+	return ( $supposed_archive_id =~ /[A-Za-z0-9\-_]{138}/ );
 }
 
 =head1 NOT IMPLEMENTED
