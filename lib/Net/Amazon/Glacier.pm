@@ -343,6 +343,18 @@ Returns the Amazon-generated archive ID on success, or false on failure.
 
 L<Upload Archive (POST archive)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-archive-post.html>
 
+TODO: Document how hashes are walked
+$data = {
+	1=> {
+			 2=>['here', 'there'],
+			 3=>4,
+	},
+};
+
+is: 12herethere34
+
+show Walk tut to skip keys. Is there a simple way for hashes depth=1?
+
 =cut
 
 sub upload_archive {
@@ -354,32 +366,39 @@ sub upload_archive {
 	
 	my ( $response, $ref_type );
 
-	# determine if it looks IOish	
-	$@ = "";
-	my $fd = eval { fileno $archive_path_or_content };
-	if ( !$@ && defined $fd ) {
+	# determine if it looks IOish
+	if ( _looks_ioish( $archive_path_or_content ) ) {
 		$ref_type = 'IO';
 	} else {
 		$ref_type = ref( $archive_path_or_content );
 	}
 	
 	if ( $ref_type ) {
-		if ( $ref_type eq 'SCALAR' || $ref_type eq 'CODE' || $ref_type eq 'IO' ) {
+		if ( $ref_type eq 'SCALAR' || $ref_type eq 'IO' ) {
 			# _do_upload knows how to handle scalar refs
-			# _do_upload knows how to handle code refs
 			# _do_upload knows how to handle IO filehandles refs
 			$response = $self->_do_upload($vault_name, $archive_path_or_content, $description);
+		} elsif ( $ref_type eq 'CODE' ) {
+			my $deep_unfold = sub {
+				my ( $callback ) = @_;
+				while ( my $buf &$archive_path_or_content ) {
+					&$callback( $buf );
+				}
+			};
+			# _do_upload knows how to handle code refs with a callback
+			$response = $self->_do_upload($vault_name, $deep_unfold, $description);
 		} elsif ( $ref_type eq 'ARRAY' || $ref_type eq 'HASH' || $ref_type eq 'REF' || $ref_type eq 'VSTRING' ) {
 			my $deep_unfold = sub {
-				require Data::Walk;
-				walk { wanted =>
-					sub {
-						croak 'recursive structure detected, please unfold' if ( defined $Data::Walk::seen && $Data::Walk::seen );
-						print $_ unless ref $_;
+				use Data::Walk;
+				my ( $callback ) = @_;
+				walk sub {
+					croak 'recursive structure detected, please unfold' if ( defined $Data::Walk::seen && $Data::Walk::seen );
+					if ( !ref $_ ) {
+						&$callback( $_ );
 					}
 				}, $archive_path_or_content;
 			};
-			# _do_upload knows how to handle code refs
+			# _do_upload knows how to handle code refs with a callback
 			$response = $self->_do_upload($vault_name, $deep_unfold, $description);
 		} else {
 			# ($ref_type eq 'LVALUE' || $ref_type eq  'FORMAT' || $ref_type eq 'RegExp' || $ref_type eq 'GLOB' )
@@ -395,30 +414,53 @@ sub upload_archive {
 		
 		$response = $self->_do_upload($vault_name, $content, $description);
 		
-	
 		$content->close();
 	}
 	
 	return $response;
 }
 
+# Internal implementation of Upload Archive (POST)
+
 sub _do_upload {
 	my ( $self, $vault_name, $content_ref, $description ) = @_;
+	
+	my $content_tree_hash_hex;
+	my $content_hash_hex;
+	
+	if ( _looks_ioish( $content_ref ) ) {
+		my ( $io, $tree_hash_final_hash_hex, $hash_hex ) = _make_io_seekable_and_get_tree_hash( $content_ref );
+		
+		$content_ref = $io;
+		$content_tree_hash_hex = $tree_hash_final_hash_hex;
+		$content_hash_hex = $hash_hex;
+	} else {
+		if ( ref $content_ref eq 'CODE') {
+			my ( $io, $tree_hash ) = _make_code_seekable_and_get_tree_hash( $content_ref );
+			$content_ref = $io;
+			$content_tree_hash_hex = $tree_hash;
+		} elsif ( ref $content_ref eq 'SCALAR' ) {
+			my ( $tree_hash ) = Net::Amazon::TreeHash->new();
+			$tree_hash->eat_data ( $content_ref );
+			$tree_hash->calc_tree;
+			$content_tree_hash_hex = $tree_hash;
+			$content_hash_hex = Digest::SHA::sha256_hex( $$content_ref );
+			$content_ref = $$content_ref;
+		} else {
+			croak 'Unsupported $content_ref type';
+		}
+	}
 
 	_enforce_description_limits( \$description );
-
-	my $th = Net::Amazon::TreeHash->new();
-	$th->eat_data ( $content_ref );
-	$th->calc_tree;
 
 	my $res = $self->_send_receive(
 		POST => "/-/vaults/$vault_name/archives",
 		[
 			'x-amz-archive-description' => $description,
-			'x-amz-sha256-tree-hash' => $th->get_final_hash(),
-			'x-amz-content-sha256' => Digest::SHA::sha256_hex( $$content_ref ),
+			'x-amz-sha256-tree-hash' => $content_tree_hash_hex,
+			'x-amz-content-sha256' => $content_hash_hex,
 		],
-		$$content_ref
+		$content_ref
 	);
 	croak 'upload_archive failed with error ' . $res->status_line unless $res->is_success;
 
@@ -849,7 +891,7 @@ L<Initiate a Job (POST jobs)|docs.aws.amazon.com/amazonglacier/latest/dev/api-in
 sub initiate_archive_retrieval {
 	my ( $self, $vault_name, $archive_id, $description, $sns_topic ) = @_;
 	
-	return $self->initiate_job_any( $vault_name, 'archive-retrieval', $archive_id, $description, $sns_topic );
+	return $self->_do_initiate_job( $vault_name, 'archive-retrieval', $archive_id, $description, $sns_topic );
 }
 
 =head2 initiate_inventory_retrieval( $vault_name, $format, [ $description,
@@ -871,7 +913,7 @@ L<Initiate a Job (POST jobs)|docs.aws.amazon.com/amazonglacier/latest/dev/api-in
 sub initiate_inventory_retrieval {
 	my ( $self, $vault_name, $format, $description, $sns_topic ) = @_;
 	
-	return $self->initiate_job_any( $vault_name, 'inventory-retrieval', $format, $description, $sns_topic );
+	return $self->_do_initiate_job( $vault_name, 'inventory-retrieval', $format, $description, $sns_topic );
 }
 
 =head2 initiate_job( ( $vault_name, $archive_id, [ $description, $sns_topic ] )
@@ -889,31 +931,15 @@ sub initiate_job {
 	initiate_inventory_retrieval( @_ );
 }
 
-=head2 initiate_job_any( ( $vault_name, $type, $format_or_archive_id,
-[ $description, $sns_topic ] )
+# Internal implementation of Initiate a Job (POST)
 
-Internal implementation of initiate_inventory_retrieval and
-initiate_archive_retrieval.
-
-$type is either inventory-retrieval or archive-retrieval.
-$format_or_archive_id selects format for inventory-retrieval and archive
-for archive-retrieval respectively as documented in
-initiate_archive_retrieval and initiate_inventory_retrieval.
-
-$description and $sns_topic behave as documented in
-initiate_archive_retrieval and initiate_inventory_retrieval.
-
-L<Initiate a Job (POST jobs)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-initiate-job-post.html>.
-
-=cut
-
-sub initiate_job_any {
+sub _do_initiate_job {
 	my ( $self, $vault_name, $type, $format_or_archive_id, $description, $sns_topic ) = @_;
 	
 	my ( $format, $archive_id, $content_raw );
 	
 	croak "no vault name given" unless $vault_name;
-	croak "bad type, should be 'inventory-retrieval' or 'archive-retrieval'" unless $type /^inventory-retrieval|archive-retrieval$/;
+	croak "bad type, should be 'inventory-retrieval' or 'archive-retrieval'" unless $type =~ /^inventory-retrieval|archive-retrieval$/;
 	
 	$content_raw->{Type} = $type;
 	_enforce_description_limits( \$description );
@@ -921,7 +947,7 @@ sub initiate_job_any {
 	$content_raw->{SNSTopic} = $sns_topic if defined($sns_topic);
 	
 	if ( $type eq 'inventory-retrieval' ) {
-		# Actually /^CSV|JSON$/ but since JSON is the only other possible value...
+		# actually /^CSV|JSON$/ but since JSON is the only other possible value...
 		$format = 'JSON' unless $format_or_archive_id eq 'CSV';
 		
 		$content_raw->{Format} = $format;
@@ -1078,41 +1104,37 @@ sub _decode_and_handle_response {
 }
 
 sub _send_receive {
-	my ( $self, @request_params) = @_;
-	my $req = $self->_craft_request( @request_params );
-	return $self->_send_request( $req );
-}
-
-sub _craft_request {
-	my ( $self, request, $method, $url, $header, $content ) = @_;
+	my ( $self, $request, $method, $url, $header, $content ) = @_;
 	my $host = 'glacier.'.$self->{region}.'.amazonaws.com';
-	my $total_header = [
+	my $my_headers = [
 		'x-amz-glacier-version' => '2012-06-01',
 		'Host' => $host,
 		'Date' => POSIX::strftime( '%Y%m%dT%H%M%SZ', gmtime ),
 		$header ? @$header : ()
 	];
 	my $req;
-	if (ref $content eq 'CODE' || ref $content ) {
+	if ( _looks_ioish( $content ) ) {
 		# This is streamed content
+		# TODO: Check this header is not a problem!
+		push @$my_headers, 'Content-Length' => -s $content;
+		
 		require HTTP::Request::StreamingUpload;
-
-		$req = HTTP::Request::StreamingUpload->new( $method => "https://$host$url", $total_header, $content);
+		$req = HTTP::Request::StreamingUpload->new(
+			$method => "https://$host$url",
+			fh			=> $content,
+			headers => HTTP::Headers->new( @$my_headers ),
+		);
 	} else {
-		$@ = "";
-		my $fd = eval { fileno $content };
-		if ( !$@ && defined $fd ) {
-			# This is a filehandle of some type and should be streamable
-
-			$req = HTTP::Request::StreamingUpload->new( $method => "https://$host$url", $total_header, $content);
+		if ( !ref $content ) {
+			$req = HTTP::Request->new( $method => "https://$host$url", $my_headers, $content);
 		} else {
-			# Treat as standard non streamable content
-			$req = HTTP::Request->new( $method => "https://$host$url", $total_header, $content);
+			croak 'Unsupported $content type';
 		}
 	}
 
 	my $signed_req = $self->{sig}->sign( $req );
-	return $signed_req;
+	
+	return $self->_send_request( $signed_req  );
 }
 
 sub _send_request {
@@ -1149,6 +1171,78 @@ sub _looks_like_archive_id {
 	my ( $supposed_archive_id ) = @_;
 	
 	return ( $supposed_archive_id =~ /[A-Za-z0-9\-_]{138}/ );
+}
+
+sub _looks_ioish {
+	my ( $io ) = @_;
+	$@ = "";
+	my $fileno = eval { fileno $io };
+	if ( !$@ && defined $fileno ) {
+		return 1;
+	} else {
+		return 0;
+	}
+}
+
+sub _looks_seekable {
+	my ( $io ) = @_;
+	$@ = "";
+	# determine if it is seekable with a dummy seek
+	my $seek = eval { seek $io, 0, 1 };
+	if ( !$@ && defined $seek ) {
+		return 1;
+	} else {
+		return 0;
+	}
+}
+
+sub _make_code_seekable_and_get_tree_hash {
+	my ( $code ) = @_;
+	
+	my ( $buf, $new_io, $tree_hash, $hash ) = ( undef, IO::File->new_tmpfile(), Net::Amazon::TreeHash->new(), Digest::SHA->new('SHA256') );
+	$new_io->binmode(1);
+	
+	while ( $buf ) {
+		&$code( sub {
+			$tree_hash->eat_data ( \$buf );
+			$hash->add( $buf );
+	
+			$new_io->print( $buf );
+		}
+	);
+	
+	$tree_hash->calc_tree;
+	
+	return ( $new_io, $tree_hash->calc_tree, $hash->hexdigest );
+}
+	
+sub _make_io_seekable_and_get_tree_hash {
+	my ( $io ) = @_;
+	my ( $new_io );
+	
+	$io->binmode(1);
+	
+	if ( !looks_seekable( $io ) ) {
+		$new_io= IO::File->new_tmpfile();
+		$new_io->binmode(1);
+	}
+	
+	my ( $buf, $tree_hash, $hash ) = ( undef, Net::Amazon::TreeHash->new(), Digest::SHA->new('SHA256') );
+	
+	while ( $io->read( $buf, 1024 * 1024 ) ) {
+		$tree_hash->eat_data ( \$buf );
+		$hash->add( $buf );
+	
+		$new_io->print( $buf ) if ( defined $new_io );
+	}
+	
+	$tree_hash->calc_tree;
+	
+	if ( defined $new_io ) {
+		return ( $new_io, $tree_hash->calc_tree, $hash->hexdigest );
+	} else {
+		return ( $io, $tree_hash->calc_tree, $hash->hexdigest );
+	}
 }
 
 =head1 NOT IMPLEMENTED
