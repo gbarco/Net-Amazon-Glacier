@@ -854,38 +854,15 @@ L<Initiate a Job (POST jobs)|docs.aws.amazon.com/amazonglacier/latest/dev/api-in
 
 sub initiate_archive_retrieval {
 	my ( $self, $vault_name, $archive_id, $description, $sns_topic ) = @_;
-
-	croak "no vault name given" unless $vault_name;
-	croak "no archive id given" unless $archive_id;
-
-	my $content_raw = {
-		Type => 'archive-retrieval',
-		ArchiveId => $archive_id,
-	};
-
-	if ( defined $description ) {
-		 _enforce_description_limits( \$description );
-		$content_raw->{Description} = $description;
-	}
-
-	$content_raw->{SNSTopic} = $sns_topic
-		if defined($sns_topic);
-
-	my $res = $self->_send_receive(
-		POST => "/-/vaults/$vault_name/jobs",
-		[ ],
-		encode_json($content_raw),
-	);
-	# updated error severity; method must return a job id
-	croak 'initiate_archive_retrieval failed with error ' . $res->status_line unless $res->is_success;
-
-	return $res->header('x-amz-job-id');
+	
+	return $self->initiate_job_any( $vault_name, 'archive-retrieval', $archive_id, $description, $sns_topic );
 }
 
 =head2 initiate_inventory_retrieval( $vault_name, $format, [ $description,
 $sns_topic ] )
 
-Initiates an inventory retrieval job. $format is either CSV or JSON. Defaults to JSON.
+Initiates an inventory retrieval job. $format is either CSV or JSON. Defaults
+to JSON.
 
 A job description of up to 1,024 printable ASCII characters may be supplied.
 Net::Amazon::Glacier does it's best to enforce this restriction. When unsure
@@ -899,33 +876,8 @@ L<Initiate a Job (POST jobs)|docs.aws.amazon.com/amazonglacier/latest/dev/api-in
 
 sub initiate_inventory_retrieval {
 	my ( $self, $vault_name, $format, $description, $sns_topic ) = @_;
-
-	croak "no vault name given" unless $vault_name;
-	# Actually /^CSV|JSON$/ but since JSON is the only other possible value...
-	$format = 'JSON' unless $format eq 'CSV'; 
-
-	my $content_raw = {
-		Type => 'inventory-retrieval',
-	};
-
-	$content_raw->{Format} = $format if defined($format);
-
-	if ( defined $description ) {
-		_enforce_description_limits( \$description );
-		$content_raw->{Description} = $description;
-	}
-
-	$content_raw->{SNSTopic} = $sns_topic if defined($sns_topic);
-
-	my $res = $self->_send_receive(
-		POST => "/-/vaults/$vault_name/jobs",
-		[ ],
-		encode_json($content_raw),
-	);
-	# updated error severity; method must return a job id
-	croak 'initiate_inventory_retrieval failed with error ' . $res->status_line unless $res->is_success;
-
-	return $res->header('x-amz-job-id');
+	
+	return $self->initiate_job_any( $vault_name, 'inventory-retrieval', $format, $description, $sns_topic );
 }
 
 =head2 initiate_job( ( $vault_name, $archive_id, [ $description, $sns_topic ] )
@@ -943,27 +895,57 @@ sub initiate_job {
 	initiate_inventory_retrieval( @_ );
 }
 
+=head2 initiate_job_any( ( $vault_name, $type, $format_or_archive_id,
+[ $description, $sns_topic ] )
+
+Internal implementation of initiate_inventory_retrieval and
+initiate_archive_retrieval.
+
+$type is either inventory-retrieval or archive-retrieval.
+$format_or_archive_id selects format for inventory-retrieval and archive
+for archive-retrieval respectively as documented in
+initiate_archive_retrieval and initiate_inventory_retrieval.
+
+$description and $sns_topic behave as documented in
+initiate_archive_retrieval and initiate_inventory_retrieval.
+
+L<Initiate a Job (POST jobs)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-initiate-job-post.html>.
+
+=cut
+
 sub initiate_job_any {
-	my ($self, $vault_name, $type, $format_or_archive_id, $description, $sns_topic ) = @_;
+	my ( $self, $vault_name, $type, $format_or_archive_id, $description, $sns_topic ) = @_;
 	
-	my ( $format, $archive_id );
+	my ( $format, $archive_id, $content_raw );
 	
 	croak "no vault name given" unless $vault_name;
 	croak "bad type, should be 'inventory-retrieval' or 'archive-retrieval'" unless $type /^inventory-retrieval|archive-retrieval$/;
 	
+	$content_raw->{Type} = $type;
+	_enforce_description_limits( \$description );
+	$content_raw->{Description} = $description;
+	$content_raw->{SNSTopic} = $sns_topic if defined($sns_topic);
+	
 	if ( $type eq 'inventory-retrieval' ) {
 		# Actually /^CSV|JSON$/ but since JSON is the only other possible value...
-		$format = 'JSON' unless $format_or_archive_id eq 'CSV'; 
+		$format = 'JSON' unless $format_or_archive_id eq 'CSV';
+		
+		$content_raw->{Format} = $format;
 	} elsif ( $type eq 'archive-retrieval' ) {
 		$archive_id = $format_or_archive_id;
-		carp 
+		carp 'does not look like an archive id trying to initiate archive-retrieval' unless _looks_like_archive_id( $archive_id );
+		$content_raw->{ArchiveId} = $format;
 	}
 	
-	# Actually /^CSV|JSON$/ but since JSON is the only other possible value...
-	
-	
-	
-	
+	my $res = $self->_send_receive(
+		POST => "/-/vaults/$vault_name/jobs",
+		[ ],
+		encode_json($content_raw),
+	);
+	# updated error severity; method must return a job id
+	croak 'initiate_inventory_retrieval failed with error ' . $res->status_line unless $res->is_success;
+
+	return $res->header('x-amz-job-id');
 }
 
 =head2 describe_job( $vault_name, $job_id )
