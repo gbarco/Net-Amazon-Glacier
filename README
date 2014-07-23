@@ -1,16 +1,19 @@
 Net-Amazon-Glacier
 
-The README is used to introduce the module and provide instructions on
-how to install the module, any machine dependencies it may have (for
-example C compilers and installed libraries) and any other information
-that should be provided before the module is installed.
+This module implements the full Amazon Glacier API 2012-06-01, current as of
+2014. It can be used to manage Glacier vaults and upload archives to them.
+Amazon states "Amazon Glacier is an extremely low-cost storage service
+that provides secure and durable storage for data archiving and backup. In order
+to keep costs low, Amazon Glacier is optimized for data that is infrequently
+accessed and for which retrieval times of several hours are suitable. With
+Amazon Glacier, customers can reliably store large or small amounts of data for
+as little as $0.01 per gigabyte per month, a significant savings compared to
+on-premises solutions."
 
-A README file is required for CPAN modules since CPAN extracts the README
-file from a module distribution so that people browsing the archive
-can use it to get an idea of the module's uses. It is usually a good idea
-to provide version information here so that people can decide whether
-fixes for the module are worth downloading.
-
+Module originally written by Tim Nordenfur, C<< <tim at gurka.se> >>.
+Bugs, suggestions and fixes contributed by Victor Efimov and Kevin Goess.
+File operations and multipart uploads written by Gonzalo Barco C<< <gbarco uy at gmail dot com, no spaces> >>
+Maintained by Gonzalo Barco C<< <gbarco uy at gmail dot com, no spaces> >>
 
 INSTALLATION
 
@@ -52,4 +55,3 @@ under the terms of either: the GNU General Public License as published
 by the Free Software Foundation; or the Artistic License.
 
 See http://dev.perl.org/licenses/ for more information.
-
