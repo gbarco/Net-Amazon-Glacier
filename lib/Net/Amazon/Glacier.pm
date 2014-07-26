@@ -3,7 +3,6 @@ package Net::Amazon::Glacier;
 use 5.10.0;
 use strict;
 use warnings;
-use feature 'say';
 
 use Net::Amazon::Signature::V4;
 use Net::Amazon::TreeHash;
@@ -1076,9 +1075,11 @@ synchronization. It is available at L<https://github.com/vsespb/mt-aws-glacier>.
 
 =head1 AUTHORS
 
-Maintained and originally written by Tim Nordenfur, C<< <tim at gurka.se> >>.
-Support for job operations was contributed by Ted Reed at IMVU. Support for many
-file operations and multipart uploads was contributed by Gonzalo Barco.
+Originally written by Tim Nordenfur, C<< <tim at gurka.se> >>.
+Maintained by Gonzalo Barco C<< <gbarco uy at gmail com, no spaces> >>
+Support for job operations was contributed by Ted Reed at IMVU.
+Support for many file operations and multipart uploads by Gonzalo Barco.
+Bugs, suggestions and fixes contributed by Victor Efimov and Kevin Goess.
 
 =head1 BUGS
 
