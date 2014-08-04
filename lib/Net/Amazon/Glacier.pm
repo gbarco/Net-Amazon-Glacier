@@ -1078,6 +1078,38 @@ sub _enforce_description_limits {
 See also Victor Efimov's MT::AWS::Glacier, an application for AWS Glacier
 synchronization. It is available at L<https://github.com/vsespb/mt-aws-glacier>.
 
+=head1 ROADMAP
+
+Implement a "simple" interfase in the lines of
+
+		use Net::Amazon::Glacier;
+
+		# Bless and upload something
+		my $glacier = Net::Amazon::Glacier->new( $region, $aws_key, $aws_secret, $metadata_store );
+
+		# Upload intelligently, i.e. in resumable parts, split very big files.
+		$glacier->simple->upload( $path || $scalar_ref || $some_fh );
+
+		# Ask for a job when first called, return while it is not ready,
+		# return content when ready.
+		$glacier->simple->download( $archive_id || 'description', [ $ranges ] );
+
+		# Request download and spawn something, wait and execute $some_code_ref
+		# when content ready.
+		$glacier->simple->download_wait( $archive_id || 'description' , $some_code_ref, [ $ranges ] );
+
+		# Delete
+		$glacier->simple->download_wait( $archive_id || 'description' );
+
+		# Support automatic archive_id to some description conversion.
+
+Implement a simple command line cli with access to simple interface.
+
+		glacier new us-east-1 AAIKSAKS... sdoasdod... /metadata/file
+		glacier upload /some/file
+		glacier download /some/file
+		glacier ls
+
 =head1 AUTHORS
 
 Originally written by Tim Nordenfur, C<< <tim at gurka.se> >>.
