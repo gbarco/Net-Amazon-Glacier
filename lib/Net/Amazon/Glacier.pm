@@ -244,7 +244,7 @@ sub set_vault_notifications {
 		encode_json($content_raw),
 	);
 	# updated error severity
-	croak 'get_vault_notifications failed with error ' . $res->status_line 
+	croak 'get_vault_notifications failed with error ' . $res->status_line
 		unless $res->is_success;
 
 	return 1;
@@ -380,7 +380,7 @@ sub _do_upload {
 
 =head2 delete_archive( $vault_name, $archive_id )
 
-Issues a request to delete a file from Glacier. $archive_id is the ID you 
+Issues a request to delete a file from Glacier. $archive_id is the ID you
 received either when you uploaded the file originally or from an inventory.
 L<Delete Archive (DELETE archive)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-archive-delete.html>
 
@@ -401,7 +401,7 @@ sub delete_archive {
 
 =head1 MULTIPART UPLOAD OPERATIONS
 
-Amazon requires this method for files larger than 4GB, and recommends it for 
+Amazon requires this method for files larger than 4GB, and recommends it for
 files larger than 100MB.
 
 L<Uploading Large Archives in Parts (Multipart Upload)|http://docs.aws.amazon.com/amazonglacier/latest/dev/uploading-archive-mpu.html>
@@ -545,7 +545,7 @@ $part can must be a reference to a string or be a filehandle and must be exactly
 the part_size supplied to multipart_upload_initiate unless it is the last past
 which can be any non-zero size.
 
-Absolute maximum online archive size is 4GB*10000 or slightly over 39Tb. 
+Absolute maximum online archive size is 4GB*10000 or slightly over 39Tb.
 L<Uploading Large Archives in Parts (Multipart Upload) Quick Facts|docs.aws.amazon.com/amazonglacier/latest/dev/uploading-archive-mpu.html#qfacts>
 
 Returns uploaded part tree-hash (which should be store in an array ref to be
