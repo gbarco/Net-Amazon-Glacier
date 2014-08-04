@@ -329,7 +329,12 @@ sub upload_archive {
 	return $self->_do_upload($vault_name, $content, $description);
 }
 
-=head2 upload_data_ref( $vault_name, $ref, [ $description ] )
+=head2 upload_archive_from_ref( $vault_name, $ref, [ $description ] )
+
+DEPRECATED at birth. Will be dropped in next version. A more robust
+upload_archive will support file paths, refs, code refs, filehandles and more.
+
+In the meanwhile...
 
 Like upload_archive, but takes a reference to your data instead of the path to
 a file. For data greater than 4GB, see multi-part upload. An archive
@@ -697,7 +702,7 @@ sub multipart_upload_abort {
 	return $res->is_success;
 }
 
-=head2 multipart_upload_part_list( $vault_name, $multipart_upload_id )
+=head2 multipart_upload_list_parts ( $vault_name, $multipart_upload_id )
 
 Returns an array ref with information on all uploaded parts of the, probably
 partially uploaded, online archive.
@@ -736,7 +741,7 @@ sub multipart_upload_list_parts {
 	return \@upload_part_list;
 }
 
-=head2 multipart_upload_list( $vault_name )
+=head2 multipart_upload_list_uploads( $vault_name )
 
 Returns an array ref with information on all non completed multipart uploads.
 Useful to recover multipart upload ids.
@@ -1094,7 +1099,6 @@ You can find documentation for this module with the perldoc command.
 
     perldoc Net::Amazon::Glacier
 
-
 You can also look for information at:
 
 =over 4
@@ -1114,6 +1118,14 @@ L<http://cpanratings.perl.org/d/Net-Amazon-Glacier>
 =item * Search CPAN
 
 L<http://search.cpan.org/dist/Net-Amazon-Glacier/>
+
+=item * Check the GitHub repo, development branches in particular.
+
+L<https://github.com/gbarco/Net-Amazon-Glacier>
+
+=item * Mail Gonzalo Barco
+
+C<< <gbarco uy at gmail com, no spaces> >>
 
 =back
 
