@@ -17,7 +17,7 @@ use Carp;
 
 =head1 NAME
 
-Net::Amazon::Glacier - An implementation of the Amazon Glacier RESTful API.
+Net::Amazon::Glacier - An implementation of the full Amazon Glacier RESTful 2012-06-01 API.
 
 =head1 VERSION
 
@@ -29,9 +29,12 @@ our $VERSION = '0.15';
 
 =head1 SYNOPSIS
 
-This module implements the Amazon Glacier RESTful API, version 2012-06-01
-(current at writing). It can be used to manage Glacier vaults and upload
-archives to them. Amazon Glacier is Amazon's long-term storage service.
+Amazon Glacier is Amazon's long-term storage service and can be used to store
+cold archives with a novel pricing scheme.
+This module implements the full Amazon Glacier RESTful API, version 2012-06-01
+(current at writing). It can be used to manage Glacier vaults, upload archives
+as single part or multipart up to 40.000Gb in a single element and download them
+in ranges or single parts.
 
 Perhaps a little code snippet:
 
@@ -1073,14 +1076,13 @@ sub _enforce_description_limits {
 	return $description;
 }
 
-=head1 SEE ALSO
-
-See also Victor Efimov's MT::AWS::Glacier, an application for AWS Glacier
-synchronization. It is available at L<https://github.com/vsespb/mt-aws-glacier>.
-
 =head1 ROADMAP
 
-Implement a "simple" interfase in the lines of
+=over 4
+
+=item * Online tests.
+
+=item * Implement a "simple" interfase in the lines of
 
 		use Net::Amazon::Glacier;
 
@@ -1090,6 +1092,7 @@ Implement a "simple" interfase in the lines of
 		# Upload intelligently, i.e. in resumable parts, split very big files.
 		$glacier->simple->upload( $path || $scalar_ref || $some_fh );
 
+		# Support automatic archive_id to some description conversion
 		# Ask for a job when first called, return while it is not ready,
 		# return content when ready.
 		$glacier->simple->download( $archive_id || 'description', [ $ranges ] );
@@ -1098,32 +1101,17 @@ Implement a "simple" interfase in the lines of
 		# when content ready.
 		$glacier->simple->download_wait( $archive_id || 'description' , $some_code_ref, [ $ranges ] );
 
-		# Delete
-		$glacier->simple->download_wait( $archive_id || 'description' );
+		# Delete online archive
+		$glacier->simple->delete( $archive_id || 'description' );
 
-		# Support automatic archive_id to some description conversion.
-
-Implement a simple command line cli with access to simple interface.
+=item * Implement a simple command line cli with access to simple interface.
 
 		glacier new us-east-1 AAIKSAKS... sdoasdod... /metadata/file
 		glacier upload /some/file
-		glacier download /some/file
+		glacier download /some/file (this would spawn a daemon waiting for download)
 		glacier ls
 
-=head1 AUTHORS
-
-Originally written by Tim Nordenfur, C<< <tim at gurka.se> >>.
-Maintained by Gonzalo Barco C<< <gbarco uy at gmail com, no spaces> >>
-Support for job operations was contributed by Ted Reed at IMVU.
-Support for many file operations and multipart uploads by Gonzalo Barco.
-Bugs, suggestions and fixes contributed by Victor Efimov and Kevin Goess.
-
-=head1 BUGS
-
-Please report any bugs or feature requests to C<bug-net-amazon-glacier at rt.cpan.org>,
-or through the web interface at L<http://rt.cpan.org/NoAuth/ReportBug.html?Queue=Net-Amazon-Glacier>.
-I will be notified, and then you'll automatically be notified of progress on
-your bug as I make changes.
+=back
 
 =head1 SUPPORT
 
@@ -1160,6 +1148,26 @@ L<https://github.com/gbarco/Net-Amazon-Glacier>
 C<< <gbarco uy at gmail com, no spaces> >>
 
 =back
+
+=head1 BUGS
+
+Please report any bugs or feature requests to C<bug-net-amazon-glacier at rt.cpan.org>,
+or through the web interface at L<http://rt.cpan.org/NoAuth/ReportBug.html?Queue=Net-Amazon-Glacier>.
+I will be notified, and then you'll automatically be notified of progress on
+your bug as I make changes.
+
+=head1 SEE ALSO
+
+See also Victor Efimov's MT::AWS::Glacier, an application for AWS Glacier
+synchronization. It is available at L<https://github.com/vsespb/mt-aws-glacier>.
+
+=head1 AUTHORS
+
+Originally written by Tim Nordenfur, C<< <tim at gurka.se> >>.
+Maintained by Gonzalo Barco C<< <gbarco uy at gmail com, no spaces> >>
+Support for job operations was contributed by Ted Reed at IMVU.
+Support for many file operations and multipart uploads by Gonzalo Barco.
+Bugs, suggestions and fixes contributed by Victor Efimov and Kevin Goess.
 
 =head1 LICENSE AND COPYRIGHT
 
