@@ -17,7 +17,7 @@ use Carp;
 
 =head1 NAME
 
-Net::Amazon::Glacier - An implementation of the Amazon Glacier RESTful API.
+Net::Amazon::Glacier - An implementation of the full Amazon Glacier RESTful 2012-06-01 API.
 
 =head1 VERSION
 
@@ -30,9 +30,12 @@ our $VERSION = '0.16';
 
 =head1 SYNOPSIS
 
-This module implements the Amazon Glacier RESTful API, version 2012-06-01
-(current at writing). It can be used to manage Glacier vaults and upload
-archives to them. Amazon Glacier is Amazon's long-term storage service.
+Amazon Glacier is Amazon's long-term storage service and can be used to store
+cold archives with a novel pricing scheme.
+This module implements the full Amazon Glacier RESTful API, version 2012-06-01
+(current at writing). It can be used to manage Glacier vaults, upload archives
+as single part or multipart up to 40.000Gb in a single element and download them
+in ranges or single parts.
 
 Perhaps a little code snippet:
 
@@ -245,7 +248,7 @@ sub set_vault_notifications {
 		encode_json($content_raw),
 	);
 	# updated error severity
-	croak 'get_vault_notifications failed with error ' . $res->status_line 
+	croak 'get_vault_notifications failed with error ' . $res->status_line
 		unless $res->is_success;
 
 	return 1;
@@ -343,7 +346,7 @@ Returns the Amazon-generated archive ID on success, or false on failure.
 
 L<Upload Archive (POST archive)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-archive-post.html>
 
-TODO: Document how hashes are walked
+TODO: Document how hashes are walked. Should I sort keys for predictability?
 $data = {
 	1=> {
 			 2=>['here', 'there'],
@@ -363,7 +366,7 @@ sub upload_archive {
 	croak "no vault name given" unless $vault_name;
 
 	$description //= '';
-	
+
 	my ( $response, $ref_type );
 
 	# determine if it looks IOish
@@ -372,7 +375,7 @@ sub upload_archive {
 	} else {
 		$ref_type = ref( $archive_path_or_content );
 	}
-	
+
 	if ( $ref_type ) {
 		if ( $ref_type eq 'SCALAR' || $ref_type eq 'IO' ) {
 			# _do_upload knows how to handle scalar refs
@@ -407,30 +410,34 @@ sub upload_archive {
 	} else {
 		# $archive_path_or_content is the path to a file
 		croak 'archive path is not a file' unless -f $archive_path_or_content;
-		
+
 		my $content = IO::File->new();
 		#_craft_request should be able to stream this
 		$content->open( $archive_path_or_content, "r");
-		
+
 		$response = $self->_do_upload($vault_name, $content, $description);
-		
+
 		$content->close();
 	}
-	
+
 	return $response;
 }
 
-# Internal implementation of Upload Archive (POST)
+=head2 _do_upload ( $vault_name, $content_ref, [ $description ] )
+
+Internal implementation of Upload Archive (POST)
+
+=cut
 
 sub _do_upload {
 	my ( $self, $vault_name, $content_ref, $description ) = @_;
-	
+
 	my $content_tree_hash_hex;
 	my $content_hash_hex;
-	
+
 	if ( _looks_ioish( $content_ref ) ) {
 		my ( $io, $tree_hash_final_hash_hex, $hash_hex ) = _make_io_seekable_and_get_tree_hash( $content_ref );
-		
+
 		$content_ref = $io;
 		$content_tree_hash_hex = $tree_hash_final_hash_hex;
 		$content_hash_hex = $hash_hex;
@@ -478,7 +485,7 @@ sub _do_upload {
 
 =head2 delete_archive( $vault_name, $archive_id )
 
-Issues a request to delete a file from Glacier. $archive_id is the ID you 
+Issues a request to delete a file from Glacier. $archive_id is the ID you
 received either when you uploaded the file originally or from an inventory.
 L<Delete Archive (DELETE archive)|http://docs.aws.amazon.com/amazonglacier/latest/dev/api-archive-delete.html>
 
@@ -499,7 +506,7 @@ sub delete_archive {
 
 =head1 MULTIPART UPLOAD OPERATIONS
 
-Amazon requires this method for files larger than 4GB, and recommends it for 
+Amazon requires this method for files larger than 4GB, and recommends it for
 files larger than 100MB.
 
 L<Uploading Large Archives in Parts (Multipart Upload)|http://docs.aws.amazon.com/amazonglacier/latest/dev/uploading-archive-mpu.html>
@@ -643,7 +650,7 @@ $part can must be a reference to a string or be a filehandle and must be exactly
 the part_size supplied to multipart_upload_initiate unless it is the last past
 which can be any non-zero size.
 
-Absolute maximum online archive size is 4GB*10000 or slightly over 39Tb. 
+Absolute maximum online archive size is 4GB*10000 or slightly over 39Tb.
 L<Uploading Large Archives in Parts (Multipart Upload) Quick Facts|docs.aws.amazon.com/amazonglacier/latest/dev/uploading-archive-mpu.html#qfacts>
 
 Returns uploaded part tree-hash (which should be store in an array ref to be
@@ -796,7 +803,7 @@ sub multipart_upload_abort {
 	return $res->is_success;
 }
 
-=head2 multipart_upload_part_list( $vault_name, $multipart_upload_id )
+=head2 multipart_upload_list_parts ( $vault_name, $multipart_upload_id )
 
 Returns an array ref with information on all uploaded parts of the, probably
 partially uploaded, online archive.
@@ -835,7 +842,7 @@ sub multipart_upload_list_parts {
 	return \@upload_part_list;
 }
 
-=head2 multipart_upload_list( $vault_name )
+=head2 multipart_upload_list_uploads( $vault_name )
 
 Returns an array ref with information on all non completed multipart uploads.
 Useful to recover multipart upload ids.
@@ -890,7 +897,7 @@ L<Initiate a Job (POST jobs)|docs.aws.amazon.com/amazonglacier/latest/dev/api-in
 
 sub initiate_archive_retrieval {
 	my ( $self, $vault_name, $archive_id, $description, $sns_topic ) = @_;
-	
+
 	return $self->_do_initiate_job( $vault_name, 'archive-retrieval', $archive_id, $description, $sns_topic );
 }
 
@@ -912,7 +919,7 @@ L<Initiate a Job (POST jobs)|docs.aws.amazon.com/amazonglacier/latest/dev/api-in
 
 sub initiate_inventory_retrieval {
 	my ( $self, $vault_name, $format, $description, $sns_topic ) = @_;
-	
+
 	return $self->_do_initiate_job( $vault_name, 'inventory-retrieval', $format, $description, $sns_topic );
 }
 
@@ -935,28 +942,28 @@ sub initiate_job {
 
 sub _do_initiate_job {
 	my ( $self, $vault_name, $type, $format_or_archive_id, $description, $sns_topic ) = @_;
-	
+
 	my ( $format, $archive_id, $content_raw );
-	
+
 	croak "no vault name given" unless $vault_name;
 	croak "bad type, should be 'inventory-retrieval' or 'archive-retrieval'" unless $type =~ /^inventory-retrieval|archive-retrieval$/;
-	
+
 	$content_raw->{Type} = $type;
 	_enforce_description_limits( \$description );
 	$content_raw->{Description} = $description;
 	$content_raw->{SNSTopic} = $sns_topic if defined($sns_topic);
-	
+
 	if ( $type eq 'inventory-retrieval' ) {
 		# actually /^CSV|JSON$/ but since JSON is the only other possible value...
 		$format = 'JSON' unless $format_or_archive_id eq 'CSV';
-		
+
 		$content_raw->{Format} = $format;
 	} elsif ( $type eq 'archive-retrieval' ) {
 		$archive_id = $format_or_archive_id;
 		carp 'does not look like an archive id trying to initiate archive-retrieval' unless _looks_like_archive_id( $archive_id );
 		$content_raw->{ArchiveId} = $format;
 	}
-	
+
 	my $res = $self->_send_receive(
 		POST => "/-/vaults/$vault_name/jobs",
 		[ ],
@@ -1117,7 +1124,7 @@ sub _send_receive {
 		# This is streamed content
 		# TODO: Check this header is not a problem!
 		push @$my_headers, 'Content-Length' => -s $content;
-		
+
 		require HTTP::Request::StreamingUpload;
 		$req = HTTP::Request::StreamingUpload->new(
 			$method => "https://$host$url",
@@ -1133,7 +1140,7 @@ sub _send_receive {
 	}
 
 	my $signed_req = $self->{sig}->sign( $req );
-	
+
 	return $self->_send_request( $signed_req  );
 }
 
@@ -1169,7 +1176,7 @@ sub _enforce_description_limits {
 
 sub _looks_like_archive_id {
 	my ( $supposed_archive_id ) = @_;
-	
+
 	return ( $supposed_archive_id =~ /[A-Za-z0-9\-_]{138}/ );
 }
 
@@ -1198,46 +1205,46 @@ sub _looks_seekable {
 
 sub _make_code_seekable_and_get_tree_hash {
 	my ( $code ) = @_;
-	
+
 	my ( $buf, $new_io, $tree_hash, $hash ) = ( undef, IO::File->new_tmpfile(), Net::Amazon::TreeHash->new(), Digest::SHA->new('SHA256') );
 	$new_io->binmode(1);
-	
+
 	while ( $buf ) {
 		&$code( sub {
 			$tree_hash->eat_data ( \$buf );
 			$hash->add( $buf );
-	
+
 			$new_io->print( $buf );
 		}
 	);
-	
+
 	$tree_hash->calc_tree;
-	
+
 	return ( $new_io, $tree_hash->calc_tree, $hash->hexdigest );
 }
-	
+
 sub _make_io_seekable_and_get_tree_hash {
 	my ( $io ) = @_;
 	my ( $new_io );
-	
+
 	$io->binmode(1);
-	
+
 	if ( !looks_seekable( $io ) ) {
 		$new_io= IO::File->new_tmpfile();
 		$new_io->binmode(1);
 	}
-	
+
 	my ( $buf, $tree_hash, $hash ) = ( undef, Net::Amazon::TreeHash->new(), Digest::SHA->new('SHA256') );
-	
+
 	while ( $io->read( $buf, 1024 * 1024 ) ) {
 		$tree_hash->eat_data ( \$buf );
 		$hash->add( $buf );
-	
+
 		$new_io->print( $buf ) if ( defined $new_io );
 	}
-	
+
 	$tree_hash->calc_tree;
-	
+
 	if ( defined $new_io ) {
 		return ( $new_io, $tree_hash->calc_tree, $hash->hexdigest );
 	} else {
@@ -1249,31 +1256,51 @@ sub _make_io_seekable_and_get_tree_hash {
 
 Nothing as of API Version 2012-06-01.
 
-=head1 SEE ALSO
+=head1 ROADMAP
 
-See also Victor Efimov's MT::AWS::Glacier, an application for AWS Glacier
-synchronization. It is available at L<https://github.com/vsespb/mt-aws-glacier>.
+=over 4
 
-=head1 AUTHORS
+=item * Online tests.
 
-Maintained and originally written by Tim Nordenfur, C<< <tim at gurka.se> >>.
-Support for job operations was contributed by Ted Reed at IMVU. Support for many
-file operations and multipart uploads was contributed by Gonzalo Barco.
-Bugs, suggestions and fixes contributed by Victor Efimov and Kevin Goess.
+=item * Migrate to named arguments.
 
-=head1 BUGS
+=item * Implement a "simple" interfase in the lines of
 
-Please report any bugs or feature requests to C<bug-net-amazon-glacier at rt.cpan.org>,
-or through the web interface at L<http://rt.cpan.org/NoAuth/ReportBug.html?Queue=Net-Amazon-Glacier>.
-I will be notified, and then you'll automatically be notified of progress on
-your bug as I make changes.
+		use Net::Amazon::Glacier;
+
+		# Bless and upload something
+		my $glacier = Net::Amazon::Glacier->new( $region, $aws_key, $aws_secret, $metadata_store );
+
+		# Upload intelligently, i.e. in resumable parts, split very big files.
+		$glacier->simple->upload( $path || $scalar_ref || $some_fh );
+
+		# Support automatic archive_id to some description conversion
+		# Ask for a job when first called, return while it is not ready,
+		# return content when ready.
+		$glacier->simple->download( $archive_id || 'description', [ $ranges ] );
+
+		# Request download and spawn something, wait and execute $some_code_ref
+		# when content ready.
+		$glacier->simple->download_wait( $archive_id || 'description' , $some_code_ref, [ $ranges ] );
+
+		# Delete online archive
+		$glacier->simple->delete( $archive_id || 'description' );
+
+=item * Implement a simple command line cli with access to simple interface.
+
+		# Hopefully in a merge with WebService::Amazon::Glacier.
+		glacier new us-east-1 AAIKSAKS... sdoasdod... /metadata/file
+		glacier upload /some/file
+		glacier download /some/file (this would spawn a daemon waiting for download)
+		glacier ls
+
+=back
 
 =head1 SUPPORT
 
 You can find documentation for this module with the perldoc command.
 
     perldoc Net::Amazon::Glacier
-
 
 You can also look for information at:
 
@@ -1295,11 +1322,41 @@ L<http://cpanratings.perl.org/d/Net-Amazon-Glacier>
 
 L<http://search.cpan.org/dist/Net-Amazon-Glacier/>
 
+=item * Check the GitHub repo, development branches in particular.
+
+L<https://github.com/gbarco/Net-Amazon-Glacier>
+
+=item * Mail Gonzalo Barco
+
+C<< <gbarco uy at gmail com, no spaces> >>
+
 =back
+
+=head1 BUGS
+
+Please report any bugs or feature requests to C<bug-net-amazon-glacier at rt.cpan.org>,
+or through the web interface at L<http://rt.cpan.org/NoAuth/ReportBug.html?Queue=Net-Amazon-Glacier>.
+I will be notified, and then you'll automatically be notified of progress on
+your bug as I make changes.
+
+=head1 SEE ALSO
+
+See also Victor Efimov's MT::AWS::Glacier, an application for AWS Glacier
+synchronization. It is available at L<https://github.com/vsespb/mt-aws-glacier>.
+
+=head1 AUTHORS
+
+Originally written by Tim Nordenfur, C<< <tim at gurka.se> >>.
+Maintained by Gonzalo Barco C<< <gbarco uy at gmail com, no spaces> >>
+Support for job operations was contributed by Ted Reed at IMVU.
+Support for many file operations and multipart uploads by Gonzalo Barco.
+Bugs, suggestions and fixes contributed by Victor Efimov and Kevin Goess.
 
 =head1 LICENSE AND COPYRIGHT
 
 Copyright 2012 Tim Nordenfur.
+
+Copyright 2014 Gonzalo Barco.
 
 This program is free software; you can redistribute it and/or modify it
 under the terms of either: the GNU General Public License as published

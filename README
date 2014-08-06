@@ -10,10 +10,10 @@ Amazon Glacier, customers can reliably store large or small amounts of data for
 as little as $0.01 per gigabyte per month, a significant savings compared to
 on-premises solutions."
 
-Module originally written by Tim Nordenfur, C<< <tim at gurka.se> >>.
+Module originally written by Tim Nordenfur, <tim at gurka.se>.
 Bugs, suggestions and fixes contributed by Victor Efimov and Kevin Goess.
-File operations and multipart uploads written by Gonzalo Barco C<< <gbarco uy at gmail dot com, no spaces> >>
-Maintained by Gonzalo Barco C<< <gbarco uy at gmail dot com, no spaces> >>
+File operations and multipart uploads written by Gonzalo Barco <gbarco uy at gmail dot com, no spaces>.
+Maintained by Gonzalo Barco <gbarco uy at gmail dot com, no spaces>.
 
 INSTALLATION
 

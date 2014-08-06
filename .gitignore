@@ -1,16 +1,28 @@
-#perl and github related
+# Perl and Github related
 blib/
 cover_db/
 .last_cover_stats
+.build/
+_build/
+inc/
 Makefile
 Makefile.old
+Build
+Build.bat
+META.*
+MYMETA.*
 MANIFEST.bak
-MYMETA.yml
-MYMETA.json
+.lwpcookies
+.last_cover_stats
+author-test.pl
 nytprof.out
+pod2htm*.tmp
 pm_to_blib
+
+# Explicitly all packaged archives
+Net-Amazon-Glacier-*
+Net-Amazon-Glacier-*.tar.gz
+
+# Some binaries
 *.tar.gz
 *.zip
-.lwpcookies
-pod2htm*.tmp
-author-test.pl

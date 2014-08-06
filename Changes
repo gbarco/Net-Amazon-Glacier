@@ -1,5 +1,14 @@
 Revision history for Net-Amazon-Glacier
 
+0.15	2014-08-05
+		Errors are exceptions. More documentation and roadmap. Better multipart
+		upload methods. Enforcement of parameter encoding compliance.
+		Better documentation and upload  functionality thanks to Kevin Goess.
+
+0.14	2013-09-25
+		Unreleased. Multipart uploads. Full implementation of API 2012-06-01.
+		Faster JSON processing. Fix for binary file management.
+
 0.13	2013-02-26
 		Support for vault notifications, vault deletion and job listing through patch by Gonzalo Barco.
 		Better documentation thanks to Gonzalo Barco.
