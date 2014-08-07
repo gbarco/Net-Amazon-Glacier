@@ -8,7 +8,7 @@ WriteMakefile(
     AUTHOR							=> q{Tim Nordenfur <tim@gurka.se>},
     VERSION_FROM				=> 'lib/Net/Amazon/Glacier.pm',
     ABSTRACT_FROM				=> 'lib/Net/Amazon/Glacier.pm',
-		LICENSE							=> 'gpl, artistic',
+		LICENSE							=> [ 'perl_5' ],
     PL_FILES						=> {},
     MIN_PERL_VERSION		=> v5.10.0,
     CONFIGURE_REQUIRES	=> {
