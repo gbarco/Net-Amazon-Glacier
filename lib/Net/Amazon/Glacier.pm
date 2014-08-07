@@ -1057,13 +1057,21 @@ sub list_jobs {
 	return ( \@completed_jobs );
 }
 
-# helper functions
+=head1 Internal Functions
 
-# receives an array ref of hex strings as returned by multipart_upload_upload_part
-# the array ref must be in the resulting online archive order as oppossed to the
-# upload order
-# returns an hex string representing the tree hash of the complete archive for
-# use in multipart_upload_complete
+All internal functions are likely to migrate to WebService::Amazon::Utils.
+
+=head2 _tree_hash_from_array_ref( $tree_hash_array_ref )
+
+Receives an array ref of hex strings as returned by multipart_upload_upload_part
+the array ref must be in the resulting online archive order as oppossed to the
+upload order returns an hex string representing the tree hash of the complete
+archive for use in multipart_upload_complete.
+
+Do not use directly. Will migrate to WebService::Amazon::Utils.
+
+=cut
+
 sub _tree_hash_from_array_ref {
 	my ( $self, $tree_hash_array_ref ) = @_;
 
@@ -1099,6 +1107,8 @@ sub _tree_hash_from_array_ref {
 	# return resulting array as string of hex values
 	return unpack( 'H*', $prevLvlHashes[0] );
 }
+
+=head2 _decode_and_handle_response
 
 sub _decode_and_handle_response {
 	my ( $self, $res ) = @_;
