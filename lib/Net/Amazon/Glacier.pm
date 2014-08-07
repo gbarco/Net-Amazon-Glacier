@@ -1108,8 +1108,6 @@ sub _tree_hash_from_array_ref {
 	return unpack( 'H*', $prevLvlHashes[0] );
 }
 
-=head2 _decode_and_handle_response
-
 sub _decode_and_handle_response {
 	my ( $self, $res ) = @_;
 
@@ -1265,6 +1263,25 @@ sub _make_io_seekable_and_get_tree_hash {
 =head1 NOT IMPLEMENTED
 
 Nothing as of API Version 2012-06-01.
+
+=head1 TESTING
+
+Adhering to Net::Amazon::EC2 testing "standard" you should set AWS_ACCESS_KEY_ID
+and SECRET_ACCESS_KEY environment variables to run the live tests. These keys
+should have full access to Amazon Glacier and full access to Amazon SNS if you
+want to run long tests (more on this later).
+
+By it self that will run "short" online tests in the seconds to minutes range.
+
+Finally if you want to run download tests you should set
+GLACIER_EXPENSIVE_LONG_TESTS "run expensive tests" and
+GLACIER_EXPENSIVE_LONG_TESTS_EMAIL to an email where you want to receive the
+results (which will take 3 to 5 hours due to Glacier inherent caracteristics).
+Be advised that these tests will spawn a daemon (the user running the tests
+does not need any special privileges except for a working Internet connection).
+The daemon checks every 30 minutes for completion of downloads for up to 8
+hours. It should take 3 to 5 hours in most cases and an email with tests results
+will be sent to GLACIER_EXPENSIVE_LONG_TESTS_EMAIL.
 
 =head1 ROADMAP
 
