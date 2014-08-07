@@ -30,6 +30,16 @@ WriteMakefile(
 			'LWP::UserAgent' => 0,
 			'LWP::Protocol::https' => 0,
     },
+		META_MERGE => {
+	    'meta-spec' => { version => 2 },
+		  resources => {
+				repository => {
+					type => 'git',
+					url => 'https://github.com/gbarco/Net-Amazon-Glacier.git',
+					web => 'https://github.com/gbarco/Net-Amazon-Glacier',
+				},
+	    },
+    },
     dist								=> { COMPRESS => 'gzip -9f', SUFFIX => 'gz', },
     clean               => { FILES => 'Net-Amazon-Glacier-*' },
 );
